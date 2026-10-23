@@ -20,12 +20,12 @@ const config: Config = {
   url: 'https://inteliacademyclub.github.io',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '/autoestudos/',
+  baseUrl: '/docs/',
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
   organizationName: 'inteliacademyclub', // Usually your GitHub org/user name.
-  projectName: 'autoestudos', // Usually your repo name.
+  projectName: 'docs', // Usually your repo name.
 
   onBrokenLinks: 'throw',
 
@@ -120,10 +120,10 @@ const config: Config = {
         {
           type: 'html',
           position: 'right',
-          value: '<img src="/autoestudos/img/mascote.png" alt="Mascote Inteli Academy" style="height: 40px; margin-right: 0px; margin-top: 5px; border-radius: 50%;" />',
+          value: '<img src="/docs/img/mascote.png" alt="Mascote Inteli Academy" style="height: 40px; margin-right: 0px; margin-top: 5px; border-radius: 50%;" />',
         },
         {
-          href: 'https://github.com/inteliacademyclub/autoestudos',
+          href: 'https://github.com/inteliacademyclub/docs',
           label: 'GitHub',
           position: 'right',
         },
@@ -146,7 +146,7 @@ const config: Config = {
         },
         {
           title: 'Comunidade',
-          items: [{label: 'GitHub', href: 'https://github.com/inteliacademyclub/autoestudos'}],
+          items: [{label: 'GitHub', href: 'https://github.com/inteliacademyclub/docs'}],
         },
       ],
       copyright: `Inteli Academy · ${new Date().getFullYear()}`,

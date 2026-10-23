@@ -17,7 +17,7 @@ Para resolver isso, os cientistas tiveram uma ideia brilhante: *E se a gente des
 
 <div align="center">
 
-<img src="/autoestudos/img/functioncalling.jpeg" alt="Ilustração de Function Calling" width="100%" />
+<img src="/docs/img/functioncalling.jpeg" alt="Ilustração de Function Calling" width="100%" />
 
 </div>
 
