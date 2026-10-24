@@ -23,7 +23,7 @@ Se você dá uma instrução preguiçosa, a IA vai te dar uma resposta preguiço
 
 <div align="center">
 
-<img src="/docs/img/prompt.jpg" alt="Prompt image" width="100%" />
+![Ilustração de um prompt](/img/prompt.jpg)
 
 </div>
 
