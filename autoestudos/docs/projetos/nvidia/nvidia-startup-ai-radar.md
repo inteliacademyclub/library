@@ -172,7 +172,7 @@ Consulta do usuário
 - [Distrito](https://distrito.me/)
 - [Latitud](https://www.latitud.com/)
 - [Cubo Itau](https://cubo.network/)
-- [ACE Startups](https://acestartups.com.br/)
+- [ACE Ventures](https://aceventures.com.br/)
 - [Endeavor Brasil](https://endeavor.org.br/)
 - [Abstartups](https://abstartups.com.br/)
 - [Bossa Invest](https://bossainvest.com/)
@@ -187,7 +187,7 @@ Consulta do usuário
 
 - [Brazil Journal](https://braziljournal.com/)
 - [NeoFeed](https://neofeed.com.br/)
-- [Exame Startups](https://exame.com/bussola/startups/)
+- [Exame Startups](https://exame.com/noticias-sobre/startups/)
 - [Startups.com.br](https://startups.com.br/)
 - [Pequenas Empresas & Grandes Negócios](https://revistapegn.globo.com/)
 - [Valor Econômico](https://valor.globo.com/)
