@@ -10,7 +10,7 @@ import {Breadcrumbs} from '@/components/site/ui';
 import {ScrollProgress} from '@/components/motion/ScrollProgress';
 import path from 'node:path';
 
-const REPO = 'https://github.com/inteliacademyclub/docs/blob/main/autoestudos';
+const REPO = 'https://github.com/inteliacademyclub/library/blob/main/autoestudos';
 
 export async function DocPage({page}: {page: Page}) {
   const {Content, toc} = await compileMdx(page.body);

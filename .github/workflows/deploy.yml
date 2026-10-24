@@ -37,8 +37,8 @@ jobs:
         run: npm run build
         working-directory: autoestudos
         env:
-          # o Pages deste repositório serve o site em /docs/
-          BASE_PATH: /docs
+          # o Pages deste repositório serve o site em /library/
+          BASE_PATH: /library
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

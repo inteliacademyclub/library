@@ -1,7 +1,7 @@
 import type {NextConfig} from 'next';
 
 // Site estático. Sem prefixo por padrão; o deploy no GitHub Pages do repositório
-// inteliacademyclub/docs define BASE_PATH=/docs, porque lá o site vive em /docs/.
+// inteliacademyclub/library define BASE_PATH=/library, porque lá o site vive em /library/.
 const basePath = process.env.BASE_PATH ?? '';
 
 const config: NextConfig = {

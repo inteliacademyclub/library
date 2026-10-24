@@ -81,7 +81,7 @@ function ThemeToggle() {
 function GitHub() {
   return (
     <a
-      href="https://github.com/inteliacademyclub/docs"
+      href="https://github.com/inteliacademyclub/library"
       target="_blank"
       rel="noopener noreferrer"
       className="press hidden size-9 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink sm:grid"

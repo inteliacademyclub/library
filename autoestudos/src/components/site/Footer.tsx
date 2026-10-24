@@ -40,7 +40,7 @@ export function Footer() {
               </li>
             ))}
             <li>
-              <a href="https://github.com/inteliacademyclub/docs" target="_blank" rel="noopener noreferrer" className="text-muted transition-colors duration-150 hover:text-ink">
+              <a href="https://github.com/inteliacademyclub/library" target="_blank" rel="noopener noreferrer" className="text-muted transition-colors duration-150 hover:text-ink">
                 GitHub
               </a>
             </li>

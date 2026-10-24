@@ -1,6 +1,6 @@
 # Autoestudos
 
-A biblioteca de estudos da Liga Inteli Academy, publicada em https://inteliacademyclub.github.io/docs/.
+A biblioteca de estudos da Liga Inteli Academy, publicada em https://inteliacademyclub.github.io/library/.
 
 Site estático em Next.js (export) + Tailwind v4. O conteúdo fica em `docs/` como Markdown/MDX:
 
