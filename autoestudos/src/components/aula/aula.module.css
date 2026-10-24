@@ -2,7 +2,7 @@
  *
  * Superfícies: raio externo = raio interno + padding (16px de padding, filhos
  * com 6–8px de raio → 22–24px por fora). Profundidade com sombra
- * (--shadow-border, em custom.css); bordas só para estado e separação. */
+ * (--shadow-border, em globals.css); bordas só para estado e separação. */
 
 /* ---------- Sketch ---------- */
 
@@ -626,4 +626,43 @@
   font-style: italic;
   color: var(--ifm-color-emphasis-600);
   font-size: 0.9rem;
+}
+
+/* ---------- botões do Quiz */
+.btnPrimary,
+.btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 0;
+  transition-property: scale, background-color, opacity;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.btnPrimary:active,
+.btnSecondary:active {
+  scale: 0.96;
+}
+.btnPrimary {
+  background: var(--ink);
+  color: var(--bg);
+}
+.btnPrimary:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  scale: 1;
+}
+.btnSecondary {
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.btnSecondary:hover {
+  background: var(--surface-3);
 }

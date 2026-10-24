@@ -1,6 +1,6 @@
 import React, {useId} from 'react';
-import Link from '@docusaurus/Link';
-import {GLOSSARIO} from '@site/src/data/glossario';
+import Link from '@/components/site/DocLink';
+import {GLOSSARIO} from '@/data/glossario';
 import styles from './aula.module.css';
 
 /** Termo com definição em tooltip (hover/foco), vinda do glossário da trilha. */

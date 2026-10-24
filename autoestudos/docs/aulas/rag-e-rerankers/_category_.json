@@ -1,4 +1,5 @@
 {
   "label": "RAG e Rerankers",
-  "position": 3
+  "position": 2,
+  "description": "Como dar a um LLM acesso a uma base de conhecimento: chunking, embeddings, bancos vetoriais, retrieval, rerankers e busca híbrida."
 }

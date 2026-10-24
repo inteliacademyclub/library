@@ -1,41 +1,18 @@
-# Website
+# Autoestudos
 
-This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
+A biblioteca de estudos da Liga Inteli Academy, publicada em https://inteliacademyclub.github.io/docs/.
 
-## Installation
+Site estático em Next.js (export) + Tailwind v4. O conteúdo fica em `docs/` como Markdown/MDX:
 
-```bash
-yarn
-```
+- `docs/aulas/<trilha>/` — trilhas de aulas. Metadados da trilha em `_category_.json` (`label`, `position`, `description`); módulos são subpastas com o próprio `_category_.json`.
+- `docs/projetos/<projeto>/` — um projeto por pasta. O `_category_.json` traz `titulo`, `parceiro`, `status` (`em-andamento` | `em-breve` | `concluido`), `periodo`, `resumo` e, opcionalmente, `trilha`. Cada página declara `secao: tapi | entregas | guias` no frontmatter.
 
-## Local Development
-
-```bash
-yarn start
-```
-
-This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
-
-## Build
+Prefixos numéricos (`1-introducao`) só ordenam: saem da URL. Admonitions usam a sintaxe `:::tip[Título]`, e todos os componentes de aula e interativos funcionam sem import. Veja `GUIA-DE-ESTILO-AULAS.md`.
 
 ```bash
-yarn build
+npm install
+npm run dev      # http://localhost:3000
+npm run build    # gera out/ e o índice de busca (Pagefind)
 ```
 
-This command generates static content into the `build` directory and can be served using any static contents hosting service.
-
-## Deployment
-
-Using SSH:
-
-```bash
-USE_SSH=true yarn deploy
-```
-
-Not using SSH:
-
-```bash
-GIT_USER=<Your GitHub username> yarn deploy
-```
-
-If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
+A busca no texto completo só funciona depois do build; no `dev`, o ⌘K busca por títulos.

@@ -6,7 +6,7 @@ Depois de transformar todos os chunks da base de conhecimento em embeddings, pre
 
 A busca por similaridade em alta dimensão é computacionalmente desafiadora. A abordagem mais ingênua, calcular a distância entre o vetor da query e cada vetor armazenado, tem complexidade linear no número de documentos. Com mil documentos isso é trivial. Com um milhão de documentos começa a ficar lento. Com cem milhões de documentos se torna completamente inviável para uso em tempo real.
 
-<img src={require('@site/static/img/dbrelacionalvsvectordatabase.png').default} alt="Banco relacional vs Vector database" style={{width: '100%'}} />
+![Banco relacional vs Vector database](/img/dbrelacionalvsvectordatabase.png)
 
 Os bancos de dados vetoriais resolvem esse problema através de estruturas de índice especializadas que permitem encontrar os vetores mais próximos de forma muito mais eficiente, sacrificando um grau mínimo de precisão em troca de um ganho imenso em velocidade. Essa troca, chamada de Approximate Nearest Neighbor (ANN), é a base técnica de todo o campo.
 
@@ -24,7 +24,7 @@ O **IVF (Inverted File Index)** divide o espaço vetorial em clusters durante um
 
 Para situações onde a memória é uma restrição severa, existe a **Product Quantization (PQ)**, que comprime os vetores dividindo-os em subvetores e quantizando cada um independentemente. Um vetor de 1024 dimensões pode ser comprimido em dezenas de bytes, em vez dos 4KB que ocuparia em float32. O preço é uma perda adicional de precisão, mas para cenários com bilhões de vetores onde simplesmente não há RAM suficiente, PQ pode ser a única opção viável.
 
-<img src={require('@site/static/img/algoritmosdeindexação.png').default} alt="Algoritmos de indexação" style={{width: '100%'}} />
+![Algoritmos de indexação](/img/algoritmosdeindexa%C3%A7%C3%A3o.png)
 
 ## Os principais bancos de dados vetoriais
 

@@ -8,7 +8,7 @@ A razão pela qual não indexamos documentos inteiros é dupla. Primeiro, os mod
 
 O chunking resolve isso criando unidades menores e semanticamente mais coesas, que produzem embeddings muito mais precisos e, consequentemente, resultados de retrieval muito mais relevantes.
 
-<img src={require('@site/static/img/chunksendodividido.png').default} alt="Documento sendo dividido em chunks" style={{width: '100%'}} />
+![Documento sendo dividido em chunks](/img/chunksendodividido.png)
 
 ## Fixed-Size Chunking: o ponto de partida
 
@@ -68,7 +68,7 @@ Chunk 3: [tokens 1600 a 2600]  ← 200 tokens de overlap com o chunk 2
 
 O overlap resolve um problema específico: informações importantes às vezes ficam nas "bordas" dos chunks, e sem overlap, uma sentença que começa no fim de um chunk e termina no início do próximo ficaria dividida, nenhum dos dois chunks a contém completa. Com overlap, essa sentença estará inteiramente presente em pelo menos um dos chunks, garantindo que o retrieval possa encontrá-la.
 
-<img src={require('@site/static/img/chunksadjacentescomoverlap.png').default} alt="Chunks adjacentes com overlap" style={{width: '100%'}} />
+![Chunks adjacentes com overlap](/img/chunksadjacentescomoverlap.png)
 
 ## Como calibrar o tamanho dos chunks
 

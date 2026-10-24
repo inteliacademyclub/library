@@ -1,4 +1,5 @@
 ---
+secao: guias
 sidebar_position: 1
 sidebar_label: Fontes de Estudo
 title: Fontes de Estudo

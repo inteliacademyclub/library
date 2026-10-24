@@ -1,4 +1,10 @@
 {
   "label": "Galaxies",
-  "position": 4
+  "position": 2,
+  "titulo": "Agente preditivo de performance em mídias sociais",
+  "parceiro": "Galaxies",
+  "status": "concluido",
+  "periodo": "23 set – 23 out 2026",
+  "resumo": "Prever as curtidas de um YouTube Short antes da publicação, com modelo treinado, intervalo de confiança e explicação, servido como tool via MCP.",
+  "trilha": "/aulas/ml-preditivo-e-agentes"
 }

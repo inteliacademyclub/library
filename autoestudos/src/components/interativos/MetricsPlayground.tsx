@@ -1,3 +1,4 @@
+'use client';
 import React, {useRef, useState} from 'react';
 import {VizFrame, Stat, Nota, vizStyles as s} from './lib/ui';
 import {COR, linear, fmt, fmtInt, RoughLine} from './lib/svg';

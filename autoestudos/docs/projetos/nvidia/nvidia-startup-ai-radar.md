@@ -1,10 +1,11 @@
 ---
+secao: tapi
 sidebar_position: 1
-sidebar_label: NVIDIA Startup AI Radar
-title: "TAPI:Projeto: NVIDIA Startup AI Radar"
+sidebar_label: Termo de abertura
+title: "NVIDIA Startup AI Radar"
 ---
 
-# TAPI:Projeto: NVIDIA Startup AI Radar
+# NVIDIA Startup AI Radar
 
 ## 1. Contextualização do problema
 

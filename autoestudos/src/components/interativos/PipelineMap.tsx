@@ -1,8 +1,9 @@
+'use client';
 import React, {useState} from 'react';
-import Link from '@docusaurus/Link';
+import Link from '@/components/site/DocLink';
 import {VizFrame, vizStyles as s} from './lib/ui';
 import {COR, RoughRect} from './lib/svg';
-import {MODULOS, urlAula} from '@site/src/data/trilha';
+import {MODULOS, urlAula} from '@/data/trilha';
 import st from './interativos.module.css';
 
 type NoMapa = {

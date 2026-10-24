@@ -19,7 +19,7 @@ recall@K    = (# docs relevantes no top K) / (# total de docs relevantes)
 precision@K = (# docs relevantes no top K) / K
 ```
 
-<img src={require('@site/static/img/diagrama_venn.png').default} alt="Diagrama de Venn da precisão e do recall" style={{width: '100%'}} />
+![Diagrama de Venn da precisão e do recall](/img/diagrama_venn.png)
 
 Existe um trade-off natural entre as duas métricas. Aumentar o número de documentos recuperados (top_k maior) tende a melhorar o recall, você está sendo mais generoso na busca, mas piora a precision, porque mais documentos irrelevantes entram no conjunto. A solução para esse dilema é um sistema de duas etapas: retrieval com alto recall seguido de reranking com alta precision. Mas chegamos lá.
 
@@ -68,7 +68,7 @@ Mesmo com um retrieval de alta qualidade, existe um problema que afeta a qualida
 
 As implicações são diretas. Recuperar mais documentos nem sempre melhora a resposta, às vezes piora, porque empurra informações relevantes para o "meio esquecido" do contexto. É melhor recuperar menos documentos, mas garantir que os mais relevantes estejam nas primeiras posições. Isso reforça a importância do reranking: não basta recuperar os documentos certos; é necessário garantir que os mais importantes sejam apresentados ao LLM em posições privilegiadas.
 
-<img src={require('@site/static/img/lostinthemiddle.png').default} alt="Lost in the Middle" style={{width: '100%'}} />
+![Lost in the Middle](/img/lostinthemiddle.png)
 
 ## Otimizações de retrieval
 
@@ -80,7 +80,7 @@ O **query rewriting** vai além: usa um LLM para reformular a query do usuário 
 
 O **parent-child retrieval** é uma técnica elegante para resolver o dilema entre granularidade fina para retrieval e contexto suficiente para o LLM. O sistema indexa chunks pequenos (filhos) para busca precisa, mas ao recuperar um chunk filho relevante, retorna o documento pai (seção completa ou página inteira) para o LLM. Isso combina a precisão do retrieval granular com o contexto abundante necessário para a geração.
 
-<img src={require('@site/static/img/twostageretriavel.png').default} alt="Two-stage retrieval" style={{width: '100%'}} />
+![Two-stage retrieval](/img/twostageretriavel.png)
 
 O **metadata filtering** permite restringir a busca por metadados antes de calcular similaridade, reduzindo drasticamente o espaço de busca e eliminando documentos irrelevantes por razões estruturais (data, categoria, fonte, etc.) antes mesmo de considerar o conteúdo.
 

@@ -1,3 +1,4 @@
+'use client';
 import React from 'react';
 import clsx from 'clsx';
 import {inline} from './inline';
@@ -84,7 +85,7 @@ function Questao({
       </div>
       <div className={styles.questionActions}>
         {!enviada ? (
-          <button className="button button--primary button--sm" disabled={sel.length === 0} onClick={() => onChange({sel, enviada: true})}>
+          <button className={styles.btnPrimary} disabled={sel.length === 0} onClick={() => onChange({sel, enviada: true})}>
             Conferir
           </button>
         ) : (
@@ -92,7 +93,7 @@ function Questao({
             <span className={ok ? styles.verdictOk : styles.verdictBad}>
               <Icon nome={ok ? 'check' : 'x'} peso={2} /> {ok ? 'Correto' : 'Ainda não'}
             </span>
-            <button className="button button--secondary button--sm" onClick={() => onChange({sel: [], enviada: false})}>
+            <button className={styles.btnSecondary} onClick={() => onChange({sel: [], enviada: false})}>
               Tentar de novo
             </button>
           </>

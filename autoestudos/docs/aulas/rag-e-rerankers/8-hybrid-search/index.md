@@ -10,7 +10,7 @@ O ponto fraco da busca vetorial aparece quando a query contém informação que 
 
 A busca lexical, por sua vez, é excelente exatamente nesses casos. O BM25 não tenta entender o significado de "ECONNREFUSED", ele simplesmente encontra documentos que contêm essa string. Para termos técnicos, nomes próprios, identificadores e qualquer coisa que deva ser correspondida exatamente, o BM25 é muito mais confiável do que embeddings.
 
-<img src={require('@site/static/img/duasforçascomplementares.png').default} alt="Forças complementares: Semântica vs Exata" style={{width: '100%'}} />
+![Forças complementares: Semântica vs Exata](/img/duasfor%C3%A7ascomplementares.png)
 
 Mas o BM25 falha completamente em semântica. "Cachorro" e "cão" são, para o BM25, strings completamente diferentes. Uma query formulada informalmente pode não encontrar documentos que usam terminologia técnica formal, e vice-versa. Usuários que escrevem "não consigo fazer login" podem não encontrar documentos que falam sobre "falha de autenticação".
 
@@ -55,7 +55,7 @@ Uma abordagem mais sofisticada que ganhou tração recente é o uso de **sparse 
 
 A diferença crucial em relação ao BM25 puro é que o SPLADE é um modelo neural treinado para fazer expansão de termos: ele não apenas pondera os termos presentes no documento, mas também "imagina" quais outros termos seriam relevantes e os adiciona ao vetor esparso. Um documento sobre "cão" pode ter valores não-zero para "cachorro", "animal de estimação", "pet", mesmo que essas palavras não apareçam no texto. Isso dá ao SPLADE algo da capacidade semântica dos embeddings densos, mantendo a interpretabilidade e a eficiência dos vetores esparsos.
 
-<img src={require('@site/static/img/sparseembedding.png').default} alt="Sparse Embedding" style={{width: '100%'}} />
+![Sparse Embedding](/img/sparseembedding.png)
 
 O SPLADE pode ser armazenado em bancos de dados vetoriais que suportam índices esparsos (como Qdrant e Milvus) e combinado com busca densa numa única operação de hybrid search dentro do próprio banco de dados.
 
@@ -86,7 +86,7 @@ Benchmarks em múltiplos datasets de retrieval mostram consistentemente que esse
 
 O ganho acumulado de combinar as três estratégias é substancial, tipicamente 30-40% de melhoria em precision em relação à busca vetorial simples.
 
-<img src={require('@site/static/img/ragsparcecompleto.png').default} alt="Pipeline RAG state-of-the-art" style={{width: '100%'}} />
+![Pipeline RAG state-of-the-art](/img/ragsparcecompleto.png)
 
 ## Casos de uso onde hybrid search faz diferença
 

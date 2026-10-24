@@ -1,8 +1,7 @@
 import React from 'react';
-import Link from '@docusaurus/Link';
+import Link from '@/components/site/DocLink';
 import clsx from 'clsx';
 import styles from './aula.module.css';
-import Icon from './Icon';
 
 export const ETAPAS = [
   {id: 'dados', label: 'Dados'},
@@ -31,18 +30,14 @@ type Props = {
   opcional?: boolean;
 };
 
-/** Cabeçalho padrão das aulas da trilha: objetivos, pré-requisitos e onde a aula entra no pipeline. */
-export default function LessonMeta({objetivos, prerequisitos, tempo, etapa, semana, opcional}: Props): React.ReactElement {
+/**
+ * Cabeçalho padrão das aulas da trilha: objetivos, pré-requisitos e onde a aula
+ * entra no pipeline. tempo, semana e opcional aparecem no cabeçalho da página.
+ */
+export default function LessonMeta({objetivos, prerequisitos, etapa}: Props): React.ReactElement {
   const ativas = new Set(Array.isArray(etapa) ? etapa : [etapa]);
   return (
     <aside className={styles.meta} aria-label="Sobre esta aula">
-      <div className={styles.metaTop}>
-        <span className={styles.pill}>
-          <Icon nome="relogio" peso={2} /> {tempo}
-        </span>
-        {semana !== undefined && <span className={styles.pill}>Semana {semana} do projeto</span>}
-        {opcional && <span className={clsx(styles.pill, styles.pillOpt)}>Opcional · ir além</span>}
-      </div>
       <ol className={styles.pipeline} aria-label="Etapas do pipeline do projeto">
         {ETAPAS.map((e) => (
           <li key={e.id} className={clsx(styles.stage, ativas.has(e.id) && styles.stageOn)} aria-current={ativas.has(e.id) ? 'step' : undefined}>

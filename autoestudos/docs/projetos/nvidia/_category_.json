@@ -1,4 +1,10 @@
 {
   "label": "NVIDIA",
-  "position": 3
+  "position": 4,
+  "titulo": "NVIDIA Startup AI Radar",
+  "parceiro": "NVIDIA",
+  "status": "concluido",
+  "periodo": "2026",
+  "resumo": "Plataforma multiagente que mapeia startups brasileiras AI-native, diagnostica a maturidade técnica e recomenda tecnologias NVIDIA.",
+  "trilha": "/aulas/rag-e-rerankers"
 }

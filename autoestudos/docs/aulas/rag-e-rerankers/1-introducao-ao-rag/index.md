@@ -8,7 +8,7 @@ A ideia central é simples, mas poderosa. Em vez de depender exclusivamente do c
 
 Pense desta forma: um LLM sem RAG é como um especialista brilhante que passou anos estudando, mas que foi isolado do mundo desde então. Ele responde com segurança e fluência, mas suas respostas refletem o que ele sabia no momento do "isolamento", a data de corte do treinamento. Com o RAG, esse mesmo especialista ganha acesso a uma biblioteca atualizada. Antes de responder, ele consulta as fontes mais recentes e confiáveis e só então formula sua resposta, fundamentada em evidências concretas.
 
-<img src={require('@site/static/img/basicpipelinerag.webp').default} alt="Fluxo básico RAG" style={{width: '100%'}} />
+![Fluxo básico RAG](/img/basicpipelinerag.webp)
 
 ## Por que os LLMs precisam de ajuda?
 
@@ -36,7 +36,7 @@ Para contornar essa limitação e fornecer **conhecimento** dinâmico de forma e
 
 Já o **Fine-Tuning** (ajuste fino) é adequado quando o objetivo é enraizar uma mudança de **comportamento** estrutural no modelo: afinar o estilo de escrita, adotar um tom de voz corporativo específico, forçar saídas em formatos rígidos ou ensinar dialetos e terminologias altamente especializadas. O problema é que usar fine-tuning como "banco de dados" para memorizar fatos é ineficiente, além do custo altíssimo para re-treinar o modelo a cada nova atualização documental, modelos finamente ajustados ainda são suscetíveis a alucinar quando confrontados com cenários que não viram no treinamento.
 
-<img src={require('@site/static/img/ragvsfinevsprompt.png').default} alt="Comparativo Prompting, RAG e Fine-tuning" style={{width: '100%'}} />
+![Comparativo Prompting, RAG e Fine-tuning](/img/ragvsfinevsprompt.png)
 
 Na prática, aplicações estado-da-arte frequentemente combinam essas estratégias: um *prompting* refinado estrutura as instruções, o *RAG* alimenta o contexto dinamicamente com informações verdadeiras, e o *fine-tuning* ajusta permanentemente o tom, a síntese e o comportamento geral de resposta.
 

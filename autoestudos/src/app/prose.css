@@ -1,0 +1,291 @@
+/* Tipografia do conteúdo das aulas (markdown renderizado). */
+
+.prose {
+  font-size: 16.5px;
+  line-height: 1.72;
+  color: var(--ink-2);
+  overflow-wrap: break-word;
+}
+
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose :where(p, ul, ol, blockquote, table, details, figure, pre, .katex-display) {
+  margin-block: 0 1.15em;
+}
+
+.prose :where(h2, h3, h4) {
+  color: var(--ink);
+  font-weight: 600;
+  scroll-margin-top: calc(var(--header-h) + 24px);
+}
+
+.prose h2 {
+  font-size: 1.5rem;
+  line-height: 1.3;
+  letter-spacing: -0.018em;
+  margin: 2.6em 0 0.7em;
+}
+
+.prose h3 {
+  font-size: 1.18rem;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  margin: 2em 0 0.5em;
+}
+
+.prose h4 {
+  font-size: 1rem;
+  margin: 1.6em 0 0.4em;
+}
+
+/* link âncora ao lado do título */
+.prose :where(h2, h3) {
+  position: relative;
+}
+
+.prose strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.prose a {
+  color: var(--brand-ink);
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in oklab, var(--brand-ink) 35%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition-property: text-decoration-color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+
+.prose a:hover {
+  text-decoration-color: currentColor;
+}
+
+.prose :where(ul, ol) {
+  padding-inline-start: 1.35em;
+}
+
+.prose ul {
+  list-style: disc;
+}
+
+.prose ol {
+  list-style: decimal;
+}
+
+.prose li {
+  margin-block: 0.3em;
+  padding-inline-start: 0.2em;
+}
+
+.prose li::marker {
+  color: var(--subtle);
+}
+
+.prose ol > li::marker {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.92em;
+}
+
+.prose :where(li > ul, li > ol) {
+  margin-block: 0.3em 0;
+}
+
+.prose hr {
+  border: 0;
+  height: 1px;
+  background: var(--line);
+  margin: 3em 0;
+}
+
+.prose blockquote {
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+
+.prose blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* imagens: contorno de 1px para profundidade consistente */
+.prose img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  outline: 1px solid oklch(0 0 0 / 0.1);
+  outline-offset: -1px;
+}
+
+[data-theme='dark'] .prose img {
+  outline-color: oklch(1 0 0 / 0.1);
+}
+
+/* os diagramas Excalidraw já têm fundo próprio */
+.prose figure img[src*='/diagramas/'] {
+  outline: none;
+  border-radius: 0;
+}
+
+/* ---------- código inline */
+.prose :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  padding: 0.12em 0.38em;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.prose a code {
+  color: inherit;
+}
+
+/* ---------- blocos de código (rehype-pretty-code) */
+.prose figure[data-rehype-pretty-code-figure] {
+  position: relative;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--ring);
+  overflow: hidden;
+}
+
+.prose [data-rehype-pretty-code-title] {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  padding: 10px 16px;
+  background: var(--surface-2);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.prose pre {
+  margin: 0;
+  overflow-x: auto;
+  padding: 16px 18px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  tab-size: 4;
+}
+
+.prose pre code {
+  display: grid;
+  min-width: max-content;
+  background: none;
+  font-size: inherit;
+}
+
+.prose pre code [data-line] {
+  padding-inline: 0;
+}
+
+.prose pre [data-highlighted-line] {
+  background: var(--brand-soft);
+  margin-inline: -18px;
+  padding-inline: 18px;
+}
+
+.prose code[data-theme] span {
+  color: var(--shiki-light);
+}
+
+[data-theme='dark'] .prose code[data-theme] span {
+  color: var(--shiki-dark);
+}
+
+/* ---------- tabelas */
+.prose .table-wrap {
+  overflow-x: auto;
+  margin-block: 0 1.4em;
+  border-radius: 12px;
+  box-shadow: var(--ring);
+  background: var(--surface);
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.prose th {
+  text-align: start;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+
+.prose :where(th, td) {
+  padding: 10px 14px;
+  vertical-align: top;
+}
+
+.prose tr + tr td,
+.prose tbody tr:first-child td {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+/* ---------- details */
+.prose details {
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--ring);
+  padding: 0 16px;
+}
+
+.prose details > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 12px 0;
+  font-weight: 500;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.prose details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.prose details > summary::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  rotate: -45deg;
+  transition-property: rotate;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+  flex: none;
+}
+
+.prose details[open] > summary::before {
+  rotate: 45deg;
+}
+
+.prose details[open] {
+  padding-bottom: 4px;
+}
+
+/* ---------- matemática */
+.prose .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 4px;
+}
+
+.prose .katex {
+  font-size: 1.05em;
+}

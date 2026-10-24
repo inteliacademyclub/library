@@ -25,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: autoestudos/package-lock.json
 
@@ -36,11 +36,14 @@ jobs:
       - name: Build website
         run: npm run build
         working-directory: autoestudos
+        env:
+          # o Pages deste repositório serve o site em /docs/
+          BASE_PATH: /docs
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: autoestudos/build
+          path: autoestudos/out
 
   deploy:
     name: Deploy

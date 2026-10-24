@@ -1,5 +1,5 @@
 import React from 'react';
-import Link from '@docusaurus/Link';
+import Link from '@/components/site/DocLink';
 import {inline} from './inline';
 import styles from './aula.module.css';
 import Icon from './Icon';

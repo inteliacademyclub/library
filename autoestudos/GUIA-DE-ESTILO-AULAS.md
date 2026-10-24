@@ -121,13 +121,11 @@ Todo quiz precisa ter **explicação em todas as alternativas**. Prefira pergunt
 
 - **IDs do `<Termo>`** estão em `src/data/glossario.ts`. Se precisar de um termo que não existe lá, use texto normal e anote no seu relatório final.
 
-### Interativos: import explícito, sem props obrigatórias
+### Interativos: sem import, sem props obrigatórias
 
-Coloque o import logo abaixo do frontmatter:
+Todos os componentes ficam disponíveis em qualquer `.md`/`.mdx` sem import (o mapa está em `src/components/mdx/index.tsx`). Um componente novo precisa ser registrado lá.
 
 ```mdx
-import SplitExplorer from '@site/src/components/interativos/SplitExplorer';
-...
 <SplitExplorer />
 ```
 
@@ -158,7 +156,7 @@ Os diagramas são gerados **por código** a partir de um mini-DSL, e o resultado
 
 1. Crie `scripts/excalidraw/diagramas/<mN>/<nome>.mjs`. Use a pasta `m1`…`m7` ou `galaxies`. Veja os exemplos em `diagramas/m1/` e `diagramas/galaxies/arquitetura.mjs`.
 2. Gere os arquivos: `cd scripts/excalidraw && node build.mjs <mN>/`. O filtro evita regenerar os diagramas dos outros.
-3. **Revise visualmente.** Rode `node preview.mjs <dir-scratch> ../../static/diagramas/<mN>/<nome>.light.svg` e abra o PNG gerado.
+3. **Revise visualmente.** Rode `node preview.mjs <dir-scratch> ../../public/diagramas/<mN>/<nome>.light.svg` e abra o PNG gerado.
    - Nada pode se sobrepor, sair da caixa ou ficar ilegível.
    - As setas precisam apontar para o lugar certo.
 4. Use na aula com `<Sketch name="<mN>/<nome>" alt="..." />`.

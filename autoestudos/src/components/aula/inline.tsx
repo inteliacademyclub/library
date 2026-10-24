@@ -1,5 +1,5 @@
 import React from 'react';
-import Link from '@docusaurus/Link';
+import Link from '@/components/site/DocLink';
 
 /**
  * Formatação mínima para textos passados como string em props de componentes

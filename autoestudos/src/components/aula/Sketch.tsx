@@ -1,11 +1,10 @@
 import React from 'react';
-import ThemedImage from '@theme/ThemedImage';
-import useBaseUrl from '@docusaurus/useBaseUrl';
+import {withBase} from '@/lib/base';
 import styles from './aula.module.css';
 import Icon from './Icon';
 
 type Props = {
-  /** Caminho do diagrama dentro de static/diagramas, sem extensão. Ex.: "galaxies/arquitetura" */
+  /** Caminho do diagrama dentro de public/diagramas, sem extensão. Ex.: "galaxies/arquitetura" */
   name: string;
   alt: string;
   caption?: React.ReactNode;
@@ -18,15 +17,18 @@ type Props = {
  * fica ao lado para quem quiser abrir e editar no excalidraw.com.
  */
 export default function Sketch({name, alt, caption, maxWidth}: Props): React.ReactElement {
-  const light = useBaseUrl(`/diagramas/${name}.light.svg`);
-  const dark = useBaseUrl(`/diagramas/${name}.dark.svg`);
-  const source = useBaseUrl(`/diagramas/${name}.excalidraw`);
+  const light = withBase(`/diagramas/${name}.light.svg`);
+  const dark = withBase(`/diagramas/${name}.dark.svg`);
+  const source = withBase(`/diagramas/${name}.excalidraw`);
   return (
     <figure className={styles.sketch} style={maxWidth ? {maxWidth} : undefined}>
-      <ThemedImage alt={alt} sources={{light, dark}} className={styles.sketchImg} />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={light} alt={alt} className={`${styles.sketchImg} only-light`} loading="lazy" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={dark} alt={alt} className={`${styles.sketchImg} only-dark`} loading="lazy" />
       <figcaption className={styles.sketchCaption}>
         {caption && <span>{caption}</span>}
-        <a href={source} download className={styles.sketchSource} title="Baixe e arraste para o excalidraw.com para editar">
+        <a href={source} download data-pagefind-ignore className={styles.sketchSource} title="Baixe e arraste para o excalidraw.com para editar">
           <Icon nome="download" tamanho="0.95em" /> .excalidraw
         </a>
       </figcaption>

@@ -1,4 +1,9 @@
 {
   "label": "BTG Pactual",
-  "position": 2
+  "position": 5,
+  "titulo": "Agente de ofertas primárias",
+  "parceiro": "BTG Pactual",
+  "status": "concluido",
+  "periodo": "Maio 2026",
+  "resumo": "Agente que analisa e contextualiza ofertas primárias de renda fixa a partir de documentos públicos e comparáveis históricos."
 }

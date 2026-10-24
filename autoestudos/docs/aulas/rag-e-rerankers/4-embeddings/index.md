@@ -6,7 +6,7 @@ Para que um computador consiga comparar o significado de dois textos, ele precis
 
 A intuição geométrica é poderosa: imagine um espaço onde cada texto ocupa uma posição. Documentos sobre culinária ficam agrupados numa região; documentos sobre tecnologia ficam em outra; documentos sobre medicina ficam em outra ainda. Uma consulta sobre "receitas veganas" vai aterrissar num ponto próximo a outros textos sobre alimentação vegetal, mesmo que esses textos usem palavras completamente diferentes da consulta. É essa capacidade de capturar similaridade semântica além da correspondência lexical que torna os embeddings fundamentais para sistemas RAG.
 
-<img src={require('@site/static/img/espacoembeddings2dcachorroebanco.png').default} alt="Espaço de embeddings 2D" style={{width: '100%'}} />
+![Espaço de embeddings 2D](/img/espacoembeddings2dcachorroebanco.png)
 
 O que torna isso possível é que os modelos de embedding são treinados em grandes volumes de texto com o objetivo de aprender quais palavras, frases e conceitos tendem a aparecer em contextos similares. "Cachorro" e "cão" aparecem em contextos parecidos na linguagem real, então seus embeddings ficam próximos. "Banco financeiro" e "banco de praça" têm contextos diferentes, então acabam em regiões distintas do espaço, mesmo sendo a mesma palavra. Modelos modernos capturam esse tipo de ambiguidade de forma sofisticada.
 
@@ -16,7 +16,7 @@ Quando um texto passa por um modelo de embedding, o processo acontece em etapas.
 
 O ponto crucial é a etapa de contextualização. Ao contrário de representações mais antigas como word2vec, onde cada palavra tinha sempre o mesmo vetor independentemente do contexto, os transformers modernos produzem vetores dinâmicos que mudam conforme o contexto ao redor. A palavra "banco" num texto sobre finanças produz um vetor diferente do que num texto sobre parques públicos.
 
-<img src={require('@site/static/img/fluxodeembediing.png').default} alt="Fluxo de embedding" style={{width: '100%'}} />
+![Fluxo de embedding](/img/fluxodeembediing.png)
 
 ## Modelos de embedding: como escolher
 
@@ -48,7 +48,7 @@ O resultado varia de -1 a 1 (e, na prática, de 0 a 1 para embeddings normalizad
 
 O **produto escalar** (dot product) é uma alternativa mais rápida, mas requer que os vetores sejam normalizados para produzir resultados equivalentes à similaridade por cosseno. Muitos bancos de dados vetoriais fazem essa normalização automaticamente, então na prática a diferença operacional é mínima.
 
-<img src={require('@site/static/img/similiaridadecosseno2d.png').default} alt="Similaridade cosseno em 2D" style={{width: '100%'}} />
+![Similaridade cosseno em 2D](/img/similiaridadecosseno2d.png)
 
 ## O problema da compressão: por que embeddings têm limitações
 
@@ -58,7 +58,7 @@ As consequências práticas são importantes. Primeiro, documentos longos e dens
 
 Terceiro, e mais importante para entender o papel dos rerankers, os embeddings são criados para os documentos sem saber qual query vai buscá-los. Um bi-encoder (o tipo de modelo usado para embeddings de retrieval) processa query e documento de forma completamente independente. Isso significa que nuances diretamente relevantes para uma query específica podem não estar adequadamente representadas no embedding do documento. Cross-encoders (rerankers) resolvem esse problema processando query e documento juntos, o que exploraremos em detalhe mais adiante.
 
-<img src={require('@site/static/img/informationlosscompressao.png').default} alt="Information loss na compressão" style={{width: '100%'}} />
+![Information loss na compressão](/img/informationlosscompressao.png)
 
 ## Embeddings em sistemas RAG: dois momentos distintos
 

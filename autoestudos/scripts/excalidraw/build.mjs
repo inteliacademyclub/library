@@ -1,4 +1,4 @@
-// Gera static/diagramas/<caminho>.{excalidraw,light.svg,dark.svg} a partir de
+// Gera public/diagramas/<caminho>.{excalidraw,light.svg,dark.svg} a partir de
 // scripts/excalidraw/diagramas/<caminho>.mjs.
 //
 //   cd autoestudos/scripts/excalidraw && npm install && node build.mjs [filtro]
@@ -13,7 +13,7 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(HERE, 'diagramas');
-const OUT = path.resolve(HERE, '../../static/diagramas');
+const OUT = path.resolve(HERE, '../../public/diagramas');
 // diretório por processo: vários autores podem gerar diagramas ao mesmo tempo
 const CACHE = path.join(HERE, '.cache', String(process.pid));
 const PROD = path.join(HERE, 'node_modules/@excalidraw/excalidraw/dist/prod');

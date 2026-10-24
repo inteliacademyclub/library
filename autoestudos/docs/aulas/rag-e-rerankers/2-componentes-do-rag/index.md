@@ -10,7 +10,7 @@ Tudo começa com a base de conhecimento, o repositório de informações que o s
 
 A grande maioria desses dados é **não estruturada**, o que significa que não segue um esquema fixo. Um artigo científico, uma política de RH e um e-mail de suporte técnico são todos "texto", mas têm formatos, vocabulários e densidades de informação completamente diferentes. Um dos desafios centrais do RAG é lidar com essa diversidade de forma que o sistema consiga recuperar informações relevantes independentemente de como elas foram originalmente formatadas.
 
-<img src={require('@site/static/img/fontededados.png').default} alt="Fontes de Dados" style={{width: '100%'}} />
+![Fontes de Dados](/img/fontededados.png)
 
 Um aspecto crítico frequentemente negligenciado é a **qualidade dos dados** na base de conhecimento. RAG é, em última análise, uma máquina de recuperação e síntese, se a base de conhecimento contém informações erradas, contraditórias ou desatualizadas, o sistema vai recuperá-las e o LLM vai usá-las para gerar respostas igualmente problemáticas. Garbage in, garbage out. Manter a base de conhecimento atualizada, curada e de alta qualidade é uma responsabilidade operacional permanente, não apenas uma tarefa de configuração inicial.
 
@@ -24,7 +24,7 @@ A intuição por trás disso é que documentos semanticamente similares produzem
 
 A eficiência do recuperador depende diretamente da qualidade do modelo de embedding utilizado e da estrutura do índice vetorial. Modelos de embedding mais modernos capturam nuances semânticas mais ricas; índices bem configurados permitem buscas rápidas mesmo em coleções com dezenas de milhões de documentos.
 
-<img src={require('@site/static/img/fluxoretriavel.png').default} alt="Fluxo do processo de retrieval" style={{width: '100%'}} />
+![Fluxo do processo de retrieval](/img/fluxoretriavel.png)
 
 ## A Camada de Integração
 
@@ -48,7 +48,7 @@ O reranker recebe esse conjunto de candidatos e os reavalia com muito mais aten�
 
 Com todos os componentes em mente, o fluxo completo de uma consulta RAG funciona assim: o usuário submete uma pergunta; a camada de integração aciona o recuperador, que busca os documentos mais relevantes na base de conhecimento (usando busca vetorial, lexical, ou ambas); opcionalmente, o reranker reordena esses documentos por relevância precisa; a camada de integração constrói um prompt aumentado com a pergunta e o contexto; o gerador produz a resposta; e, finalmente, o handler de saída formata a resposta, incluindo, idealmente, as citações das fontes utilizadas.
 
-<img src={require('@site/static/img/ragfullpipeline.png').default} alt="Fluxo completo pipeline RAG" style={{width: '100%'}} />
+![Fluxo completo pipeline RAG](/img/ragfullpipeline.png)
 
 ## As três gerações do RAG
 
@@ -60,7 +60,7 @@ O **Advanced RAG** adiciona camadas de sofisticação: reranking dos documentos 
 
 O **Modular RAG** leva a composabilidade ao extremo, tratando cada componente como um módulo independente e intercambiável. Quer trocar o modelo de embedding? Basta substituir o módulo. Quer adicionar um step de validação de fatos antes de retornar a resposta? É só inserir um módulo na pipeline. Essa arquitetura é ideal para organizações que precisam de alta customização e manutenção granular de cada componente.
 
-<img src={require('@site/static/img/3arquiteturasrag.png').default} alt="Comparação das três arquiteturas" style={{width: '100%'}} />
+![Comparação das três arquiteturas](/img/3arquiteturasrag.png)
 
 ## A janela de contexto como restrição central
 

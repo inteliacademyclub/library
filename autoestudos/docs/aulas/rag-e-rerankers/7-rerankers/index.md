@@ -16,7 +16,7 @@ Mas essa independência tem um custo: ao criar o embedding de um documento, o mo
 
 Os **cross-encoders**, o tipo de modelo usado como reranker, fazem o oposto: eles recebem a query e o documento concatenados em uma única entrada e os processam juntos através de todas as camadas do transformer. O mecanismo de self-attention pode então pesar diretamente cada token da query em relação a cada token do documento, capturando interações semânticas muito mais ricas e sutis.
 
-<img src={require('@site/static/img/biencodervscrossencoder.png').default} alt="Bi-encoder vs Cross-encoder" style={{width: '100%'}} />
+![Bi-encoder vs Cross-encoder](/img/biencodervscrossencoder.png)
 
 ```
 # Bi-encoder (retrieval)
@@ -42,7 +42,7 @@ A solução elegante do two-stage retrieval tira proveito das forças de cada ab
 Query → Bi-encoder Retrieval (40M → 50 docs) → Cross-encoder Reranking (50 → 5 docs) → LLM
 ```
 
-<img src={require('@site/static/img/comparacao_velocidade_precisao.png').default} alt="Comparação de velocidade e precisão" style={{width: '100%'}} />
+![Comparação de velocidade e precisão](/img/comparacao_velocidade_precisao.png)
 
 ## Implementando two-stage retrieval
 
@@ -96,7 +96,7 @@ Os **LLM-based rerankers** usam um LLM através de prompting para avaliar e orde
 
 A justificativa econômica do reranking deve ser feita em dois eixos. Primeiro, o reranking reduz o número de documentos que chegam ao LLM, se passamos de 50 documentos para 5, estamos reduzindo drasticamente o custo do LLM, que é geralmente a parte mais cara do pipeline. O custo do reranker pode ser parcialmente compensado pela economia no LLM.
 
-<img src={require('@site/static/img/custorelativoquery.png').default} alt="Custo relativo por query" style={{width: '100%'}} />
+![Custo relativo por query](/img/custorelativoquery.png)
 
 Segundo, e mais importante, o reranking melhora a qualidade das respostas, o que tem um valor de negócio real. Em aplicações de customer service, uma resposta incorreta pode custar um cliente. Em aplicações médicas ou jurídicas, pode ter consequências muito mais sérias. O custo do reranking deve ser comparado não apenas ao custo da infraestrutura alternativa, mas ao custo dos erros que ele previne.
 

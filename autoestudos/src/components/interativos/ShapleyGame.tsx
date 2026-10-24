@@ -1,3 +1,4 @@
+'use client';
 import React, {useState} from 'react';
 import clsx from 'clsx';
 import {VizFrame, Stat, Nota, vizStyles as s} from './lib/ui';

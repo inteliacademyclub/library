@@ -1,4 +1,5 @@
 {
   "label": "Eval-Driven Development",
-  "position": 4
+  "position": 3,
+  "description": "Medir antes de evoluir: golden datasets, métricas determinísticas, LLM-as-a-judge, avaliação de RAG e de agentes, e evals contínuos em produção."
 }

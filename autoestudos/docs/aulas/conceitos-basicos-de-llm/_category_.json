@@ -1,4 +1,5 @@
 {
   "label": "Conceitos Básicos de LLM",
-  "position": 2
+  "position": 1,
+  "description": "Como um modelo de linguagem funciona por dentro: tokens, janela de contexto, parâmetros, temperatura, prompting, alucinação e function calling."
 }
