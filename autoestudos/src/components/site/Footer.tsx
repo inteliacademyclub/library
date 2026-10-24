@@ -11,7 +11,7 @@ export function Footer() {
         <div>
           <div className="flex items-center gap-2.5 text-ink">
             <Logo className="h-[18px] text-brand-ink" />
-            <span className="text-[15px] font-semibold tracking-[-0.01em]">Autoestudos</span>
+            <span className="text-[15px] font-semibold tracking-[-0.01em]">Biblioteca</span>
           </div>
           <p className="mt-3 max-w-[34ch] text-[14px] leading-6 text-muted">
             A biblioteca de estudos da Liga Inteli Academy: trilhas de aulas e o material de cada projeto.

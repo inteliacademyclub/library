@@ -13,9 +13,14 @@ const mono = JetBrains_Mono({subsets: ['latin'], variable: '--font-jetbrains', d
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://inteliacademyclub.github.io'),
-  title: {default: 'Autoestudos · Inteli Academy', template: '%s · Autoestudos'},
+  title: {default: 'Biblioteca · Liga Inteli Academy', template: '%s · Liga Inteli Academy'},
   description: 'A biblioteca de estudos da Liga Inteli Academy: trilhas de aulas e o material de cada projeto.',
   icons: {icon: withBase('/img/logobranca.png')},
+  openGraph: {
+    type: 'website',
+    locale: 'pt_BR',
+    siteName: 'Liga Inteli Academy',
+  },
 };
 
 export const viewport: Viewport = {
