@@ -1,5 +1,6 @@
-// Kit mínimo para gráficos em SVG com traço "desenhado à mão" (rough.js).
-// O gerador do rough.js é puramente computacional, então funciona no SSR.
+// Kit mínimo para gráficos em SVG. Usa o gerador do rough.js com rugosidade
+// zero: traço limpo, no padrão visual do site. É puramente computacional,
+// então funciona no SSR. Preenchimento padrão é chapado e translúcido.
 import React, {useMemo} from 'react';
 import rough from 'roughjs';
 import type {Options} from 'roughjs/bin/core';
@@ -71,7 +72,7 @@ type RoughProps = {
 const STROKE_SENTINEL = '#000001';
 const FILL_SENTINEL = '#000002';
 
-function Paths({drawable, stroke, fill, strokeWidth, opacity, className, dashed}: {drawable: ReturnType<typeof gen.rectangle>} & RoughProps) {
+function Paths({drawable, stroke, fill, fillStyle, strokeWidth, opacity, className, dashed}: {drawable: ReturnType<typeof gen.rectangle>} & RoughProps) {
   const paths = gen.toPaths(drawable);
   return (
     <g opacity={opacity} className={className}>
@@ -87,6 +88,8 @@ function Paths({drawable, stroke, fill, strokeWidth, opacity, className, dashed}
             style={{
               stroke: hachura ? fill : solido ? 'none' : stroke,
               fill: solido ? fill : 'none',
+              // sem fillStyle explícito, o preenchimento é uma tinta suave da cor
+              fillOpacity: solido && !fillStyle ? 0.2 : undefined,
               strokeWidth: hachura ? 1.1 : strokeWidth,
               strokeDasharray: dashed && !hachura && !solido ? '6 5' : undefined,
             }}
@@ -97,15 +100,18 @@ function Paths({drawable, stroke, fill, strokeWidth, opacity, className, dashed}
   );
 }
 
-function opts({seed = 1, roughness = 1.1, fillStyle = 'hachure', fill}: RoughProps): Options {
+function opts({seed = 1, fillStyle = 'solid', fill}: RoughProps): Options {
   return {
     seed,
-    roughness,
+    roughness: 0,
+    bowing: 0,
     fillStyle,
     fill: fill ? FILL_SENTINEL : undefined,
     hachureGap: 5,
     fillWeight: 1,
-    bowing: 1,
+    disableMultiStroke: true,
+    disableMultiStrokeFill: true,
+    preserveVertices: true,
     stroke: STROKE_SENTINEL,
   };
 }
@@ -116,7 +122,7 @@ export function RoughRect({x, y, w, h, ...p}: {x: number; y: number; w: number; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [x, y, w, h, p.seed, p.roughness, p.fillStyle, !!p.fill],
   );
-  return <Paths drawable={drawable} strokeWidth={p.strokeWidth ?? 1.6} stroke={p.stroke ?? COR.tinta} {...p} />;
+  return <Paths drawable={drawable} strokeWidth={p.strokeWidth ?? 1.5} stroke={p.stroke ?? COR.tinta} {...p} />;
 }
 
 export function RoughLine({x1, y1, x2, y2, ...p}: {x1: number; y1: number; x2: number; y2: number} & RoughProps) {
@@ -125,7 +131,7 @@ export function RoughLine({x1, y1, x2, y2, ...p}: {x1: number; y1: number; x2: n
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [x1, y1, x2, y2, p.seed, p.roughness],
   );
-  return <Paths drawable={drawable} strokeWidth={p.strokeWidth ?? 1.6} stroke={p.stroke ?? COR.tinta} {...p} />;
+  return <Paths drawable={drawable} strokeWidth={p.strokeWidth ?? 1.5} stroke={p.stroke ?? COR.tinta} {...p} />;
 }
 
 export function RoughCircle({cx, cy, d, ...p}: {cx: number; cy: number; d: number} & RoughProps) {
@@ -143,7 +149,7 @@ export function RoughPath({d, ...p}: {d: string} & RoughProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [d, p.seed, p.roughness, !!p.fill],
   );
-  return <Paths drawable={drawable} strokeWidth={p.strokeWidth ?? 1.6} stroke={p.stroke ?? COR.tinta} {...p} />;
+  return <Paths drawable={drawable} strokeWidth={p.strokeWidth ?? 1.5} stroke={p.stroke ?? COR.tinta} {...p} />;
 }
 
 /** Eixo simples (x embaixo ou y à esquerda) com ticks. */

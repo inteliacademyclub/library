@@ -98,7 +98,3 @@ Streamlit, Gradio ou FastAPI + React: subir o PDF, comparar as versões lado a l
 :::warning[Vídeo é eliminatório]
 O vídeo tem no máximo 5 minutos. Sem vídeo, ou com um vídeo que não mostre o código e a interface funcionando de verdade, a entrega técnica é anulada.
 :::
-
-## Para estudar
-
-A trilha [Eval-Driven Development](/aulas/eval-driven-development/) cobre a base do avaliador: métricas determinísticas, LLM-as-a-judge estruturado e seus vieses.

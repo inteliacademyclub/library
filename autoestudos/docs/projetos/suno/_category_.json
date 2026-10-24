@@ -5,6 +5,5 @@
   "parceiro": "Suno",
   "status": "concluido",
   "periodo": "Setembro 2026",
-  "resumo": "Pipeline que adapta atas do Copom, fatos relevantes e releases para três públicos e três formatos, com um avaliador híbrido que mede se cada nível foi respeitado.",
-  "trilha": "/aulas/eval-driven-development"
+  "resumo": "Pipeline que adapta atas do Copom, fatos relevantes e releases para três públicos e três formatos, com um avaliador híbrido que mede se cada nível foi respeitado."
 }

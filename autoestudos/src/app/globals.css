@@ -1,6 +1,8 @@
+/* prose fica entre base e components: os utilitários dos componentes vencem a
+ * tipografia do artigo sem precisar de !important. */
+@layer theme, base, prose, components, utilities;
 @import 'tailwindcss';
 @import 'katex/dist/katex.min.css';
-@import '../css/excalifont.css';
 
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 

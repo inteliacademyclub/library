@@ -217,4 +217,3 @@ A referência de viabilidade são modelos abertos, execução local e ferramenta
 - [Understanding Virality: A Rubric-based VLM Framework for Short-Form Edutainment Evaluation](https://arxiv.org/abs/2512.21402): extração de atributos de vídeos curtos com VLM a partir de uma rubrica.
 - Documentação: [YouTube Data API v3](https://developers.google.com/youtube/v3), [LangGraph](https://langchain-ai.github.io/langgraph/) e [Model Context Protocol](https://modelcontextprotocol.io). A documentação da rota do Instagram sai no kickoff.
 - Ferramentas: [faster-whisper](https://github.com/SYSTRAN/faster-whisper), [Qwen2.5-VL](https://github.com/QwenLM/Qwen2.5-VL) e a [Gemini API](https://ai.google.dev/gemini-api/docs) (compreensão de vídeo e limites de uso).
-- Na trilha [ML Preditivo e Agentes](/aulas/ml-preditivo-e-agentes/), os módulos sobre features de vídeo (VLM como extrator estruturado) e sobre servir o agente via MCP cobrem boa parte da base técnica deste case.
