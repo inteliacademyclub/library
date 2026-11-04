@@ -249,3 +249,9 @@
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
 }
+
+/* barra de progresso do carrossel de projetos da página inicial */
+@keyframes destaque-progresso {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
