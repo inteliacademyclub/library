@@ -255,3 +255,59 @@
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
 }
+
+/* carrossel de projetos da página inicial (src/components/site/Destaque.tsx) */
+.destaque-brilho {
+  transform: translate(-50%, -50%);
+  transition:
+    left 1.6s cubic-bezier(0.22, 1, 0.36, 1),
+    top 1.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.destaque-slide[data-estado='oculto'] {
+  visibility: hidden;
+  opacity: 0;
+}
+.destaque-slide[data-estado='ativo'] .destaque-item {
+  animation: destaque-entra 760ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms + 220ms);
+}
+.destaque-slide[data-estado='saindo'] {
+  pointer-events: none;
+  animation: destaque-sai 420ms cubic-bezier(0.4, 0, 0.6, 1) both;
+}
+@keyframes destaque-entra {
+  from {
+    opacity: 0;
+    transform: translate3d(calc(var(--dir, 1) * 36px), 8px, 0);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+@keyframes destaque-sai {
+  from {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(calc(var(--dir, 1) * -36px), 0, 0);
+    filter: blur(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .destaque-slide[data-estado='ativo'] .destaque-item,
+  .destaque-slide[data-estado='saindo'] {
+    animation: none;
+  }
+  .destaque-slide[data-estado='saindo'] {
+    visibility: hidden;
+  }
+  .destaque-brilho {
+    transition: none;
+  }
+}
