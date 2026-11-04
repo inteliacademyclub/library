@@ -5,6 +5,7 @@ import {SearchTrigger} from '@/components/site/Search';
 import {CartaoTrilha, LinhaProjeto} from '@/components/views/Indices';
 import {CutReveal} from '@/components/motion/CutReveal';
 import {Reveal} from '@/components/motion/Reveal';
+import {Destaque, type ItemDestaque} from '@/components/site/Destaque';
 
 function TituloSecao({titulo, href, rotulo}: {titulo: string; href: string; rotulo: string}) {
   return (
@@ -21,11 +22,21 @@ function TituloSecao({titulo, href, rotulo}: {titulo: string; href: string; rotu
 export default function Home() {
   const trilhas = getTrilhas();
   const projetos = getProjetos();
-  // destaque: o projeto em andamento; sem um, o próximo a começar
-  const ativo = projetos.find((p) => p.status === 'em-andamento') ?? projetos.find((p) => p.status === 'em-breve');
+  // destaque: todos os projetos em andamento, alternando num carrossel; sem nenhum, o próximo a começar
+  const emAndamento = projetos.filter((p) => p.status === 'em-andamento');
+  const proximo = projetos.find((p) => p.status === 'em-breve');
+  const ativos = emAndamento.length ? emAndamento : proximo ? [proximo] : [];
   const aulas = trilhas.reduce((s, t) => s + t.pages.length, 0);
-  const tapi = ativo?.pages.find((p) => p.secao === 'tapi');
-  const trilhaAtiva = ativo?.trilha ? trilhas.find((t) => `/aulas/${t.slug}` === ativo.trilha) : undefined;
+  const destaques: ItemDestaque[] = ativos.map((p) => ({
+    slug: p.slug,
+    parceiro: p.parceiro,
+    periodo: p.periodo,
+    titulo: p.titulo,
+    resumo: p.resumo,
+    status: p.status,
+    tapi: p.pages.find((x) => x.secao === 'tapi')?.slug,
+    trilha: p.trilha ? trilhas.find((t) => `/aulas/${t.slug}` === p.trilha)?.slug : undefined,
+  }));
 
   return (
     <main className="mx-auto max-w-[1120px] px-4 sm:px-6">
@@ -45,48 +56,9 @@ export default function Home() {
         </div>
       </section>
 
-      {ativo && (
+      {destaques.length > 0 && (
         <Reveal>
-          <section aria-labelledby="ativo" className="relative overflow-hidden rounded-[28px] bg-[#3f01ff] p-7 text-white sm:p-10">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-white/14 px-2.5 text-[12px] font-medium">
-                <span className={ativo.status === 'em-andamento' ? 'size-1.5 animate-pulse rounded-full bg-white' : 'size-1.5 rounded-full ring-[1.5px] ring-inset ring-white'} aria-hidden />
-                {ativo.status === 'em-andamento' ? 'Projeto em andamento' : 'Próximo projeto'}
-              </span>
-              <span className="font-mono text-[12px] uppercase tracking-[0.02em] text-white/70">
-                {ativo.parceiro} · {ativo.periodo}
-              </span>
-            </div>
-            <h2 id="ativo" className="mt-6 max-w-[22ch] text-[30px] font-medium leading-[1.1] tracking-[-0.03em] sm:text-[40px]">
-              {ativo.titulo}
-            </h2>
-            <p className="mt-4 max-w-[60ch] text-[16px] leading-7 text-white/80">{ativo.resumo}</p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link
-                href={`/projetos/${ativo.slug}/`}
-                className="press group inline-flex h-10 items-center gap-2 rounded-full bg-white px-4.5 text-[14px] font-medium text-[#17161c] hover:bg-white/90"
-              >
-                Abrir o projeto
-                <ArrowRight className="size-4 transition-[translate] duration-150 group-hover:translate-x-0.5" strokeWidth={1.75} aria-hidden />
-              </Link>
-              {tapi && (
-                <Link
-                  href={`/${tapi.slug}/`}
-                  className="press inline-flex h-10 items-center rounded-full px-4.5 text-[14px] font-medium shadow-[inset_0_0_0_1px_rgb(255_255_255/0.32)] hover:bg-white/10"
-                >
-                  Ler o TAPI
-                </Link>
-              )}
-              {trilhaAtiva && (
-                <Link
-                  href={`/aulas/${trilhaAtiva.slug}/`}
-                  className="press inline-flex h-10 items-center rounded-full px-4.5 text-[14px] font-medium shadow-[inset_0_0_0_1px_rgb(255_255_255/0.32)] hover:bg-white/10"
-                >
-                  Trilha de estudos
-                </Link>
-              )}
-            </div>
-          </section>
+          <Destaque itens={destaques} />
         </Reveal>
       )}
 
@@ -102,11 +74,9 @@ export default function Home() {
       <section className="mt-28" aria-label="Projetos">
         <TituloSecao titulo="Projetos" href="/projetos/" rotulo="Todos os projetos" />
         <Reveal className="space-y-3">
-          {projetos
-            .filter((p) => p !== ativo)
-            .map((p) => (
-              <LinhaProjeto key={p.slug} p={p} />
-            ))}
+          {projetos.map((p) => (
+            <LinhaProjeto key={p.slug} p={p} />
+          ))}
         </Reveal>
       </section>
     </main>
