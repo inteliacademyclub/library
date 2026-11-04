@@ -136,6 +136,10 @@ function pagesIn(dir: string): Entrada[] {
 }
 
 const byPos = <T extends {position: number}>(a: T, b: T) => a.position - b.position;
+const byStatusAndPos = (a: Projeto, b: Projeto) => {
+  const ordem: Record<Projeto['status'], number> = {'em-andamento': 0, 'em-breve': 1, concluido: 2};
+  return ordem[a.status] - ordem[b.status] || byPos(a, b);
+};
 
 let cache: {trilhas: Trilha[]; projetos: Projeto[]; pages: Page[]} | undefined;
 
@@ -214,7 +218,7 @@ function load() {
         pages,
       };
     })
-    .sort(byPos);
+    .sort(byStatusAndPos);
 
   cache = {trilhas, projetos, pages: [...trilhas.flatMap((t) => t.pages), ...projetos.flatMap((p) => p.pages)]};
   return cache;
