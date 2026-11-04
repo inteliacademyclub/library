@@ -29,6 +29,11 @@ export const MODULOS: Modulo[] = [
       {slug: 'engajamento-e-cauda-longa', titulo: 'Engajamento é cauda longa'},
       {slug: 'o-tempo-mente', titulo: 'O tempo mente'},
       {slug: 'documentacao-etica-e-termos', titulo: 'Documentação, ética e termos de uso'},
+      {slug: 'ground-truth-vs-proxy', titulo: 'Ground truth vs. proxy'},
+      {slug: 'coletando-dados-de-apis-publicas', titulo: 'Coletando dados de APIs públicas'},
+      {slug: 'validando-dados-na-entrada', titulo: 'Validando dados na entrada'},
+      {slug: 'integrando-fontes-de-granularidades-diferentes', titulo: 'Integrando fontes de granularidades diferentes'},
+      {slug: 'scraping-e-termos-de-uso', titulo: 'Scraping e termos de uso'},
     ],
   },
   {
@@ -44,6 +49,8 @@ export const MODULOS: Modulo[] = [
       {slug: 'metricas-de-erro-e-ordenacao', titulo: 'Métricas de erro e de ordenação'},
       {slug: 'experimentos-rastreaveis', titulo: 'Experimentos rastreáveis com MLflow'},
       {slug: 'analise-de-erros-e-ablacao', titulo: 'Análise de erros e ablação'},
+      {slug: 'metricas-de-classificacao-e-custo-dos-erros', titulo: 'Métricas de classificação e custo dos erros'},
+      {slug: 'desbalanceamento-de-classes', titulo: 'Desbalanceamento de classes'},
     ],
   },
   {
@@ -59,6 +66,8 @@ export const MODULOS: Modulo[] = [
       {slug: 'lightgbm-catboost-xgboost', titulo: 'LightGBM, CatBoost e XGBoost na prática'},
       {slug: 'features-do-canal-e-do-tempo', titulo: 'Features do canal e do tempo'},
       {slug: 'features-de-texto', titulo: 'Features de texto'},
+      {slug: 'regressao-logistica', titulo: 'Regressão logística'},
+      {slug: 'dados-geoespaciais-para-ml', titulo: 'Dados geoespaciais para ML'},
     ],
   },
   {
@@ -92,6 +101,7 @@ export const MODULOS: Modulo[] = [
       {slug: 'shapley-values', titulo: 'Shapley values: a intuição'},
       {slug: 'shap-na-pratica', titulo: 'SHAP na prática'},
       {slug: 'da-explicacao-a-narrativa', titulo: 'Da explicação à narrativa'},
+      {slug: 'calibracao-de-probabilidade', titulo: 'Calibração de probabilidade'},
     ],
   },
   {

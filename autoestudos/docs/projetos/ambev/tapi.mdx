@@ -1,0 +1,166 @@
+---
+secao: tapi
+sidebar_position: 1
+sidebar_label: 'Termo de abertura'
+title: 'Case Ambev: Occasion Intelligence, Pizza + Guaraná'
+description: 'O que é o case Ambev, o que precisa ser entregue e como usar a trilha de estudos e os materiais específicos do projeto para chegar lá.'
+---
+
+# Case Ambev: Occasion Intelligence, Pizza + Guaraná
+
+:::info[Sobre as datas]
+As datas do kickoff e da entrega final ainda não foram definidas nesta página. Quando forem, entram aqui e no [roadmap](/projetos/ambev/roadmap).
+:::
+
+## O problema em uma frase
+
+O Guaraná Antarctica é uma marca centenária, presente em mais de 70% dos lares brasileiros e associada a cotidiano, festa, família e tradição. A ocasião **Pizza + Refrigerante** é recorrente e se concentra de sexta a domingo, à noite e dentro de casa. Os dados da empresa mostram maior consumo de pizza na Classe A e maior associação do Guaraná com a ocasião nesse segmento, o que aponta espaço de expansão em outros públicos.
+
+O desafio é **aumentar a frequência da associação entre Pizza e Guaraná Antarctica**, identificando em quais contextos essa combinação tem maior potencial. Uma ocasião não depende de uma única variável: dia, horário, público, região, canal e histórico interagem. Regras fixas como "ativar nas noites de sexta" não capturam essas interações. Por isso o problema é tratado como **Occasion Intelligence**: usar dados para estimar quando e em quais contextos a ocasião é mais provável e apoiar a decisão de ativação.
+
+---
+
+## Objetivo e pergunta norteadora
+
+Desenvolver um sistema orientado a dados que identifique contextos com maior propensão para a ocasião Pizza + Guaraná e transforme essa estimativa em recomendações estruturadas de ativação. O projeto cobre o pipeline completo: base, features, modelos, score, interpretação, Decision Engine e aplicação funcional.
+
+> **Pergunta norteadora:** como usar dados comportamentais e contextuais para estimar a propensão ou a intensidade de contextos relevantes para a ocasião Pizza + Guaraná e transformar essa estimativa em recomendações estruturadas de ativação?
+
+---
+
+## Como o sistema funciona: três decisões separadas
+
+| Camada | Papel | O que pode afirmar |
+| :--- | :--- | :--- |
+| **Occasion Prediction** | Estima a propensão (ou a intensidade) de uma observação representar a ocasião. A saída é o **Occasion Score**. | "Quão relevante é este contexto para a ocasião?" |
+| **Decision Engine** | Aplica regras explícitas sobre score, contexto e fatores explicativos para escolher uma categoria de ativação, com justificativa. | "Dado este score e este contexto, a categoria coerente é esta." |
+| **Camada generativa (opcional)** | Um LLM transforma a decisão estruturada em texto. | Só comunica o que a camada analítica produziu. Não calcula o score nem inventa fatores. |
+
+O Occasion Score é a saída principal do modelo. Em classificação, corresponde à probabilidade estimada de a observação ser a ocasião; em regressão, ao valor previsto ou a uma transformação documentada dele. **O significado do score é definido antes da avaliação.** O score não decide qual campanha fazer: essa escolha pertence ao Decision Engine.
+
+Fluxo: fontes de dados, base, features, modelo, Occasion Score e explicação, Decision Engine, aplicação.
+
+---
+
+## Dados e formulação do problema
+
+Não existe base nacional recente que registre diretamente cada ocasião Pizza + Guaraná. **Construir e documentar a base faz parte do desafio**: cada grupo seleciona e combina fontes abertas ou fornecidas pela empresa, justificando as escolhas.
+
+| Tema | Regra do TAPI |
+| :--- | :--- |
+| **Unidade de análise** | Definida pelo grupo e mantida em todo o pipeline (por exemplo, pedido, consumidor por período ou município por semana). |
+| **Target** | Uma ocorrência, intensidade ou medida observável da ocasião, binária ou de regressão. Precisa ter significado de negócio, estar disponível de forma consistente, não depender de informação futura e ter limitações documentadas. **Não se cria target artificial, e o tipo de ativação nunca é o target.** |
+| **Papéis das fontes** | Ground truth para o target (pedidos de delivery, POF, Vigitel); features contextuais e territoriais (clima INMET, Censo/SIDRA, densidade de pizzarias no OSM); proxies de interesse (Google Trends), que **nunca** são tratados como consumo real. |
+| **Integração** | Fontes com períodos ou granularidades incompatíveis não são combinadas como se fossem a mesma observação. Usam-se chaves coerentes (data, código IBGE, UF, município). Se nenhuma fonte sustentar um target defensável, a formulação é revista antes da modelagem. |
+| **Data leakage** | O grupo declara o instante de previsão, e toda feature precisa estar disponível até ele. O mesmo processamento vale para treino e inferência. |
+| **Data Card** | Obrigatório: unidade de análise, target (ground truth ou proxy de consumo; proxy de interesse, como o Google Trends, nunca), dicionário de variáveis, fontes e versões, regras de integração, estratégia anti-leakage, população coberta e excluída, vieses e limitações, licença e cuidados com LGPD. |
+
+O guia [Fontes e APIs do case](/projetos/ambev/materiais/guia-de-fontes-e-apis) reúne cada fonte com o papel, a chave de join e os limites.
+
+---
+
+## Escopo
+
+**Dentro do escopo**
+- Base documentada, Data Card e pipeline reprodutível de ingestão, integração e preparação.
+- Análise exploratória e feature engineering.
+- Baseline simples e pelo menos um modelo de maior complexidade, com Occasion Score e avaliação por segmentos.
+- Decision Engine baseado em regras documentadas.
+- API ou função de inferência, aplicação funcional e README com experimentos reprodutíveis.
+
+**Extensões opcionais:** clusterização de contextos, LLM para texto, MLflow e monitoramento de drift.
+
+**Fora do escopo**
+- Veiculação real de campanhas, compra de mídia, publicação automática, peças gráficas finais e integrações com plataformas privadas.
+- Alegar impacto causal de uma ativação sem dados ou experimento que o sustentem.
+- Treinar um modelo para escolher a "melhor campanha" sem histórico de ações e resultados.
+
+---
+
+## Modelagem, avaliação e explicabilidade
+
+- **Baseline obrigatório:** uma estratégia que funcionaria sem Machine Learning, como a frequência histórica por dia da semana e período do dia. Ele mostra se o modelo aprende algo além de "sexta à noite é bom para pizza".
+- **Modelos candidatos:** ao menos um de maior capacidade (Regressão Logística, Random Forest ou Gradient Boosting). A escolha final é sustentada por experimentos.
+- **Validação:** com componente temporal (treino em períodos anteriores, avaliação em posteriores). Splits por região ou canal medem generalização. Embaralhamento aleatório não é a única avaliação final.
+- **Métricas:** em classificação, Precision, Recall, F1, ROC-AUC e PR-AUC, matriz de confusão e calibração quando o score for probabilístico; em regressão, métricas adequadas ao target. A métrica principal é justificada pelo custo dos erros: um falso positivo gera uma ativação pouco relevante; um falso negativo deixa passar uma ocasião relevante.
+- **Análise por segmentos:** período, região, público e canal, para que o resultado global não mascare diferenças importantes.
+- **Explicabilidade:** SHAP, feature importance ou permutation importance calculadas sobre o modelo. A aplicação exibe os principais fatores de cada predição.
+
+---
+
+## Decision Engine
+
+O Decision Engine recebe o Occasion Score, o contexto observado e os fatores relevantes, e devolve uma **categoria de ativação** coerente com o contexto, com justificativa. As regras que ligam contexto à recomendação ficam documentadas. Exemplos do TAPI:
+
+| Condição | Categoria |
+| :--- | :--- |
+| Score alto e forte presença de delivery | Ativação via delivery |
+| Score alto e consumo doméstico recorrente | Promoção, combo ou ação para consumo em casa |
+| Score relevante e segmento com baixa associação atual à marca | Awareness e construção de associação |
+
+Sem histórico de contexto, ação e resultado, a recomendação é uma **decisão estruturada por regras**, e não uma segunda previsão supervisionada. O sistema não afirma causalidade nem que uma ação venderá mais que outra.
+
+---
+
+## Arquitetura e stack
+
+Coleta, processamento, modelo, regras de negócio e interface ficam em **camadas separadas**, e a aplicação permite inspecionar o funcionamento real do sistema. Stack de referência, com a escolha final justificada na documentação:
+
+- **Coleta e integração:** Python com `requests` ou `httpx` para as APIs abertas (Open-Meteo, BrasilAPI, SIDRA, Overpass) e exportação ou biblioteca como `pytrends` para o Google Trends.
+- **Dados:** Pandas ou Polars, arquivos Parquet e DuckDB ou PostgreSQL/PostGIS quando houver dado geográfico.
+- **Modelagem e explicabilidade:** Scikit-learn (baseline, pipelines e calibração), XGBoost ou LightGBM e SHAP.
+- **Serviço e interface:** FastAPI com Pydantic para o contrato de entrada e saída, e Streamlit (com Folium ou pydeck para mapas) para a demonstração.
+- **Reprodutibilidade:** Git, ambiente fixado (`requirements` ou `uv`, Docker se necessário), testes com `pytest` e MLflow como opcional.
+
+---
+
+## O contrato da aplicação
+
+| Entrada | | Saída | |
+| :--- | :--- | :--- | :--- |
+| Atributos contextuais e temporais | dia, horário, feriado, clima | `occasion_score` | o score da ocasião |
+| Público, canal e região | segmento, canal, UF e município | `classification` | classe derivada do score |
+| Metadados de versão | modelo, base, regras | `top_factors` | fatores que mais pesaram |
+| | | `recommendation_category` | categoria de ativação |
+| | | `recommendation_reason` | justificativa da regra aplicada |
+| | | `model_metadata` | versões e parâmetros |
+
+---
+
+## Entregáveis
+
+1. **Dataset, Data Card e pipeline de dados.**
+2. **EDA e feature engineering.**
+3. **Occasion Prediction Model:** baseline, candidatos, validação e Occasion Score.
+4. **Avaliação e interpretabilidade:** métricas, análise de erros, segmentos e explicações.
+5. **Decision Engine** com regras documentadas.
+6. **Aplicação funcional:** entrada de contexto, score, fatores e recomendação.
+7. **Vídeo demonstrativo e README** (arquitetura, dados, metodologia, resultados, limitações e execução).
+
+:::danger[Critério eliminatório: o vídeo]
+O vídeo tem até **5 minutos**. Deve mostrar ao menos uma execução completa, da entrada ao Occasion Score e à recomendação, além das métricas, da estratégia de validação, das fontes, da unidade de análise, do target e da arquitetura, com resultados reprodutíveis a partir do código entregue. **A ausência do vídeo, ou um vídeo que não demonstre o funcionamento real do código e da interface, anula a entrega técnica.**
+:::
+
+---
+
+## Demais entregáveis (opcionais)
+
+Três extensões partem do modelo principal e de dados reais, sem simulações apresentadas como resultado. Elas não substituem nenhuma entrega acima.
+
+- **Trend Radar:** identifica se o interesse por Pizza + Guaraná cresce ou cai por cidade e período. Buscas medem interesse, não consumo, e entram como contexto, nunca como target.
+- **Mapa de Oportunidade:** prioriza regiões e contextos cruzando o Occasion Score com a densidade de pizzarias e o perfil territorial. A priorização é uma regra do Decision Engine aplicada ao território, não uma nova previsão.
+- **Laboratório de Preço:** testa combos e faixas de desconto. Exige dados transacionais não públicos, vindos de um restaurante parceiro autorizado. Sem parceiro, a entrega termina no **protocolo do experimento**: hipótese, grupos de teste e controle, métrica de margem e critério de decisão.
+
+---
+
+## Como usar este material
+
+<CardGrid>
+  <ToolCard nome="Roadmap" papel="As etapas do case, com a aula certa para cada uma e o que priorizar se o tempo apertar." link="/projetos/ambev/roadmap" />
+  <ToolCard nome="Fontes e APIs do case" papel="Todas as fontes abertas, com o papel, a chave de join e os limites de cada uma." link="/projetos/ambev/materiais/guia-de-fontes-e-apis" />
+  <ToolCard nome="Monte sua base" papel="O passo a passo prático das fontes ao painel validado e documentado." link="/projetos/ambev/materiais/monte-sua-base" />
+  <ToolCard nome="Stack e ferramentas" papel="Cada ferramenta do case com versão testada, papel e link da documentação." link="/projetos/ambev/materiais/stack-e-ferramentas" />
+  <ToolCard nome="Temas e prioridades" papel="Os 15 materiais específicos da Ambev e as 10 aulas gerais que o case expõe." link="/projetos/ambev/materiais/temas-e-prioridades" />
+  <ToolCard nome="Autoavaliação" papel="Checklist dos entregáveis para conferir antes da entrega." link="/projetos/ambev/autoavaliacao" />
+  <ToolCard nome="Trilha de aulas" papel="A trilha ML Preditivo e Agentes cobre cerca de metade das exigências do TAPI." link="/aulas/ml-preditivo-e-agentes" />
+</CardGrid>

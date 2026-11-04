@@ -1,0 +1,180 @@
+---
+sidebar_position: 13
+sidebar_label: 'Scraping e termos de uso'
+title: 'Scraping e termos de uso'
+description: 'Quando usar uma API em vez de um scraper: robots.txt, termos de uso, LGPD, cuidados de coleta e um roteiro de decisão antes de coletar dados de um site.'
+tags: [ml-preditivo, dados, scraping, etica, lgpd]
+---
+
+# Scraping e Termos de Uso: Quando Usar uma API em Vez de um Scraper
+
+<LessonMeta
+  tempo="30 min"
+  semana={1}
+  etapa="dados"
+  objetivos={[
+    'Ler um robots.txt e entender o que ele permite e o que não permite',
+    'Distinguir convenção técnica (robots.txt) de autorização (termos de uso)',
+    'Aplicar um roteiro de decisão antes de coletar dados de um site',
+    'Identificar os cuidados de LGPD em dados coletados da web',
+  ]}
+  prerequisitos={[
+    {label: 'Documentação, ética e termos de uso', to: '/aulas/ml-preditivo-e-agentes/formulacao-e-dados/documentacao-etica-e-termos'},
+  ]}
+/>
+
+:::warning[Esta aula não é aconselhamento jurídico]
+A legalidade de coletar dados da web depende do site, dos termos, do tipo de dado e do uso. Para um projeto que vai além de estudo, consulte quem entende de direito digital.
+:::
+
+Quando a fonte não tem API, é tentador escrever um scraper. É rápido e quase sempre funciona. Também é frágil (o site muda, o código quebra) e pode violar os termos de uso, expor dados pessoais e sobrecarregar um serviço que não pediu esse tráfego. A pergunta certa antes de escrever uma linha é: **eu deveria coletar isso, e como?**
+
+---
+
+## O que o `robots.txt` diz e o que não diz
+
+O `robots.txt` é um arquivo na raiz do site em que o dono indica quais caminhos os coletores automáticos **não devem** acessar. O formato é descrito no Protocolo de Exclusão de Robôs (RFC 9309). O módulo `urllib.robotparser` da biblioteca padrão do Python lê esse formato:
+
+```python
+from urllib.robotparser import RobotFileParser
+
+ROBOTS = """
+User-agent: *
+Disallow: /privado/
+Crawl-delay: 5
+
+User-agent: pesquisa-bot
+Disallow: /
+""".strip().splitlines()
+
+rp = RobotFileParser()
+rp.parse(ROBOTS)
+
+print(rp.can_fetch("meu-coletor", "https://exemplo.com/receitas/pizza"))   # True
+print(rp.can_fetch("meu-coletor", "https://exemplo.com/privado/x"))       # False
+print(rp.can_fetch("pesquisa-bot", "https://exemplo.com/receitas/pizza")) # False
+print(rp.crawl_delay("meu-coletor"))                                     # 5
+assert rp.can_fetch("meu-coletor", "https://exemplo.com/receitas/pizza")
+assert not rp.can_fetch("meu-coletor", "https://exemplo.com/privado/x")
+assert rp.crawl_delay("meu-coletor") == 5
+```
+
+A saída: `True`, `False`, `False` e `5`. O coletor genérico pode acessar `/receitas/pizza`, não pode acessar `/privado/` e, para o robô nomeado `pesquisa-bot`, o site inteiro está fechado. O `Crawl-delay` de 5 segundos pede um intervalo entre requisições (nem todo coletor o respeita, e nem todo site o usa).
+
+:::danger[robots.txt não é autorização]
+Ele é uma **convenção técnica**, e não um contrato nem uma permissão. Um caminho "permitido" no `robots.txt` pode continuar proibido pelos **termos de uso**, e um caminho bloqueado pode ser acessível por outros meios. Respeitar o `robots.txt` é o **mínimo**, não o suficiente.
+:::
+
+---
+
+## Um roteiro de decisão
+
+Antes de coletar de um site, responda em ordem:
+
+| Pergunta | Se a resposta for... |
+| :--- | :--- |
+| **Existe uma API oficial ou um conjunto de dados aberto?** | Use-a. É estável, documentada e autorizada |
+| **Os termos de uso permitem coleta automática?** | Se proíbem, não colete. Se não dizem, trate com cautela |
+| **O `robots.txt` permite o caminho?** | Se não, não colete |
+| **Há dados pessoais?** | Aplique a LGPD: finalidade, minimização e segurança |
+| **O volume e a frequência são razoáveis?** | Limite a taxa, use cache e identifique o seu coletor |
+| **O dado é o que você precisa, ou só o que está disponível?** | Colete o mínimo necessário |
+
+Se alguma resposta bloqueia, a saída é **mudar a fonte**, pedir **autorização** (por exemplo, uma parceria que forneça os dados) ou **reformular o problema**.
+
+---
+
+## LGPD e dados da web
+
+Um dado ser **público** não o torna livre de regras. A Lei Geral de Proteção de Dados (Lei 13.709/2018) se aplica a dados **pessoais**, incluindo os que alguém publicou na internet. Cuidados práticos:
+
+- **Finalidade:** tenha um propósito claro e legítimo para o dado.
+- **Minimização:** colete só o que o modelo precisa. Nome, foto e identificadores raramente são necessários.
+- **Anonimização:** quando possível, remova ou agregue identificadores.
+- **Segurança:** guarde os dados com acesso restrito.
+- **Documentação:** registre no Data Card a origem, a licença e os cuidados de LGPD.
+
+---
+
+## Coletar com bom comportamento
+
+Se a coleta é adequada, faça-a de forma educada:
+
+- **Identifique o coletor** com um `User-Agent` que diga quem você é e como contatá-lo.
+- **Limite a taxa:** poucas requisições por segundo, com pausa entre elas.
+- **Use cache:** não peça duas vezes a mesma página.
+- **Respeite sinais de bloqueio** (`429`, `403`) e pare em vez de contornar.
+- **Não contorne proteções** (CAPTCHAs, autenticação) para obter o que o site restringe.
+
+<NoProjeto titulo="No projeto: Galaxies e Ambev">
+O Galaxies usa a API oficial do YouTube em vez de scraping: as políticas da plataforma proíbem scraping, o que afeta, por exemplo, o uso de `yt-dlp`. O Ambev cita scrapers de iFood como referência técnica, mas o próprio TAPI alerta: sem licença, sujeitos aos termos da plataforma e à LGPD, e preço de vitrine não comprova vendas nem margem. Em ambos os casos, a decisão é a mesma: **prefira a API ou um dado autorizado**, e documente o que não foi possível coletar.
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas éticas e legais]
+1. **Tratar o `robots.txt` como permissão.** Ele só diz o que o dono pede para não acessar.
+2. **Não ler os termos de uso.** É onde costuma estar a proibição.
+3. **Coletar dados pessoais "porque são públicos".** A LGPD continua valendo.
+4. **Sobrecarregar o servidor.** Uma coleta agressiva pode ser tratada como ataque.
+5. **Não registrar a origem.** Sem registro, ninguém consegue auditar a base.
+:::
+
+<Quiz
+  id="m1-a13"
+  perguntas={[
+    {
+      pergunta: 'O `robots.txt` de um site permite o caminho que você quer coletar. Isso basta?',
+      opcoes: [
+        {texto: 'Sim, é uma permissão formal', explicacao: 'O robots.txt é uma convenção técnica, não um contrato.'},
+        {texto: 'Não: os termos de uso e a LGPD também precisam ser considerados', correta: true, explicacao: 'O robots.txt é o mínimo, não o suficiente.'},
+        {texto: 'Sim, desde que você use um proxy', explicacao: 'Ocultar a origem piora a situação.'},
+      ],
+    },
+    {
+      pergunta: 'Existe uma API oficial e um scraper que já funciona. Qual a melhor escolha?',
+      opcoes: [
+        {texto: 'O scraper, porque já está pronto', explicacao: 'É frágil e pode violar os termos.'},
+        {texto: 'A API, por ser estável, documentada e autorizada', correta: true, explicacao: 'É o primeiro item do roteiro de decisão.'},
+        {texto: 'Os dois ao mesmo tempo', explicacao: 'Dobra o risco sem ganho claro.'},
+      ],
+    },
+    {
+      pergunta: 'Dados pessoais publicados em um perfil aberto estão livres da LGPD?',
+      opcoes: [
+        {texto: 'Sim, são públicos', explicacao: 'Dados pessoais públicos continuam sujeitos à lei.'},
+        {texto: 'Não: finalidade, minimização e segurança continuam valendo', correta: true, explicacao: 'A lei se aplica a dados pessoais, publicados ou não.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: avalie uma fonte]
+Escolha um site de que você gostaria de coletar dados. Leia o `robots.txt` e os termos de uso e preencha o roteiro de decisão da aula. Conclua: usar API, pedir autorização, coletar com cuidados ou desistir.
+
+<details>
+<summary>Dica</summary>
+
+Se os termos de uso estiverem escondidos ou confusos, trate como "não autorizado" até esclarecer com o dono do site. A dúvida pesa contra a coleta, não a favor.
+</details>
+:::
+
+---
+
+## Resumo
+
+- Antes de coletar, pergunte se **deveria** e depois **como**.
+- **`robots.txt`** é uma convenção técnica; **termos de uso e LGPD** são o que importa juridicamente.
+- **Prefira API ou dado autorizado**; scraper é o último recurso.
+- Dados **públicos** ainda podem ser **pessoais**: aplique finalidade, minimização e segurança.
+- Colete com **identificação, limite de taxa e cache**, e **documente a origem**.
+
+## Referências
+
+- [RFC 9309: Robots Exclusion Protocol](https://www.rfc-editor.org/rfc/rfc9309). A especificação do formato do `robots.txt`.
+- [Lei nº 13.709/2018 (LGPD)](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm). O texto da lei.
+- [Documentação, ética e termos de uso](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/documentacao-etica-e-termos): data card, LGPD e termos.
+
+**Próxima aula:** [Baselines](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/baselines), que abre o módulo 2: **Avaliação Honesta**.

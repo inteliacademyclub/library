@@ -1,0 +1,181 @@
+---
+secao: estudo
+sidebar_position: 3
+sidebar_label: 'Unidade de análise e score'
+title: 'Unidade de análise e formulação do score'
+description: 'Como escolher a unidade de análise (pedido, consumidor por período ou município por semana), definir target binário ou de intensidade e escrever o significado do Occasion Score antes da avaliação.'
+---
+
+# Unidade de Análise e Formulação do Score
+
+<LessonMeta
+  tempo="30 min"
+  etapa="dados"
+  objetivos={[
+    'Comparar as três unidades de análise sugeridas pelo TAPI e o que cada uma exige',
+    'Escolher entre target binário (propensão) e de intensidade (regressão)',
+    'Escrever a definição do Occasion Score antes de avaliar o modelo',
+    'Manter a mesma unidade em todo o pipeline, do join ao split',
+  ]}
+  prerequisitos={[
+    {label: 'O target que não existe', to: '/projetos/ambev/materiais/o-target-que-nao-existe'},
+  ]}
+/>
+
+Depois de escolher de onde vem o rótulo, falta decidir **o que é uma linha da sua tabela**. É a unidade de análise, e ela determina quase tudo o que vem depois: quais fontes se juntam, que features existem, como se divide treino e teste e o que o score significa.
+
+O TAPI pede duas coisas aqui: que a unidade seja **definida pelo grupo e mantida em todo o pipeline**, e que o **significado do score seja definido antes da avaliação**. Esta aula mostra como fazer as duas.
+
+:::info[Ideia central]
+Unidade, target e score formam um conjunto. Mudar um deles muda os outros dois. Escreva os três juntos, em uma frase, antes de modelar.
+:::
+
+---
+
+## As três unidades candidatas
+
+O TAPI cita três exemplos. Nenhuma é obrigatória.
+
+| Unidade | Uma linha é | Combina com | Exige | Risco |
+| :--- | :--- | :--- | :--- | :--- |
+| **Pedido** | Um pedido de delivery | Pedidos de parceiro, com dia e horário | Dados transacionais não públicos e autorizados | Sem parceiro, não existe base |
+| **Consumidor por período** | Uma pessoa em uma janela de tempo | Pesquisas individuais, como a POF | Dado individual com recorte temporal | Dados individuais pedem cuidados com LGPD, e a POF não tem série semanal |
+| **Município por semana** | Um município em uma semana | Features territoriais, clima, calendário e oferta | Um target que exista nessa granularidade | O target é a parte difícil: POF e Vigitel não têm esse nível |
+
+A escolha depende, sobretudo, do que o target permite. Se não houver pedidos de delivery acessíveis, a unidade mais defensável tende a ser **município por período**, com o período compatível com a fonte do target (por exemplo, anual para o Vigitel). Uma unidade mais fina do que a do target é uma promessa que os dados não cumprem.
+
+---
+
+## Binário ou intensidade
+
+Com a unidade escolhida, defina a forma do target:
+
+| Formulação | Target | O score é | Métricas típicas |
+| :--- | :--- | :--- | :--- |
+| **Binária (propensão)** | A ocasião ocorreu ou não naquela unidade | A probabilidade estimada de ocorrer | Precision, Recall, F1, ROC-AUC, PR-AUC, matriz de confusão e calibração |
+| **Regressão (intensidade)** | Uma medida quantitativa da ocasião | O valor previsto, ou uma transformação documentada dele | Métricas de erro adequadas ao target |
+
+Para a formulação binária, o TAPI pede **calibração** quando o score for apresentado como probabilidade. Isso importa: um score de 0,8 só pode ser lido como "80% de chance" se o modelo for calibrado. Se não for, chame-o de **índice de ordenação** e não de probabilidade.
+
+A métrica principal deve ser **justificada pelo custo dos erros**:
+
+- um **falso positivo** gera uma ativação pouco relevante;
+- um **falso negativo** deixa passar uma ocasião relevante.
+
+Qual dos dois custa mais é uma decisão de negócio, e ela escolhe entre priorizar precision ou recall.
+
+---
+
+## Escreva a definição antes de avaliar
+
+O TAPI exige que o significado do score seja definido antes da avaliação. Um modelo para a definição, com os campos que você precisa preencher:
+
+```text
+Unidade de análise: <o que é uma linha>
+Instante de previsão: <quando a previsão é feita>
+Target: <o que foi observado, em qual fonte e período>
+Tipo: <binário ou regressão>
+Occasion Score: <probabilidade estimada de X | valor previsto de Y>
+Leitura permitida: <o que o score afirma>
+Leitura proibida: <o que o score não afirma>
+```
+
+A linha "leitura proibida" é a que mais protege o projeto. Por exemplo, se o target vem de afinidade por perfil, a leitura proibida inclui "probabilidade de uma noite específica".
+
+<NoProjeto titulo="No projeto: dois contextos na mesma unidade">
+Os exemplos "Campinas, sexta, 20h, chuva" e "Recife, terça, 13h" só fazem sentido como linhas separadas se a unidade tiver granularidade de dia e horário. Com **município por semana**, os dois viram "Campinas, semana X" e "Recife, semana Y", e a diferença entre sexta e terça desaparece da unidade. Se o projeto usar essa unidade, os exemplos da aula precisam mudar, e o baseline "sexta à noite" precisa ser reformulado.
+</NoProjeto>
+
+---
+
+## Mantenha a unidade em todo o pipeline
+
+A unidade escolhida aparece em quatro lugares, e todos precisam concordar:
+
+1. **Chaves de join:** data, código IBGE, UF e município. Fontes com períodos ou granularidades incompatíveis não são combinadas como se fossem a mesma observação.
+2. **Features:** agregadas para a unidade, sem usar informação posterior ao instante de previsão (veja [Instante de previsão com dados de contexto](/projetos/ambev/materiais/instante-de-previsao-com-dados-de-contexto)).
+3. **Validação:** treino em períodos anteriores e teste em posteriores; para medir generalização, separe também por região ou canal.
+4. **Data Card:** a unidade, a população coberta e a população excluída.
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de formulação]
+1. **Unidade mais fina que o target.** Linhas por dia e horário com um target que só existe por ano.
+2. **Mudar a unidade no meio do pipeline.** Treinar por município e avaliar por pedido invalida a comparação.
+3. **Chamar de probabilidade um score não calibrado.**
+4. **Definir o significado do score depois de ver os resultados.**
+5. **Esquecer a população excluída.** O que ficou de fora (cidades sem dados, por exemplo) precisa aparecer no Data Card.
+:::
+
+<Quiz
+  id="ambev-a3"
+  perguntas={[
+    {
+      pergunta: 'O target vem do Vigitel, com resultado anual por capital. Qual unidade é coerente?',
+      opcoes: [
+        {texto: 'Pedido, com dia e horário', explicacao: 'O Vigitel não tem esse nível de detalhe. A unidade seria mais fina que o target.'},
+        {texto: 'Capital por ano', correta: true, explicacao: 'A unidade acompanha a granularidade do target.'},
+        {texto: 'Município por hora', explicacao: 'Cria uma unidade mais fina que o dado de origem.'},
+      ],
+    },
+    {
+      pergunta: 'Quando um score de classificação pode ser lido como probabilidade?',
+      opcoes: [
+        {texto: 'Sempre que o modelo devolve um número entre 0 e 1', explicacao: 'Estar entre 0 e 1 não torna o número uma probabilidade confiável.'},
+        {texto: 'Quando a calibração foi verificada', correta: true, explicacao: 'O TAPI pede calibração quando o score é probabilístico.'},
+        {texto: 'Quando o ROC-AUC é alto', explicacao: 'ROC-AUC mede ordenação, não calibração.'},
+      ],
+    },
+    {
+      pergunta: 'Na formulação binária, qual erro é "um falso positivo" no case?',
+      opcoes: [
+        {texto: 'Deixar passar uma ocasião relevante', explicacao: 'Esse é o falso negativo.'},
+        {texto: 'Indicar uma ocasião que não era relevante, gerando uma ativação pouco relevante', correta: true, explicacao: 'É a definição do TAPI.'},
+        {texto: 'Prever o dia da semana errado', explicacao: 'Não é uma categoria de erro da classificação da ocasião.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: preencha a definição]
+Use o modelo de definição desta aula para o seu projeto. Depois leia a linha "leitura proibida" em voz alta para alguém e veja se a pessoa concorda que o seu sistema não deve afirmar aquilo.
+
+<details>
+<summary>Dica</summary>
+
+Se você não consegue escrever a "leitura proibida", é sinal de que a leitura permitida está ampla demais. Estreite a promessa até que ela caiba nos dados.
+</details>
+:::
+
+---
+
+## Resumo
+
+- A **unidade de análise** é definida pelo grupo e **mantida em todo o pipeline**.
+- Ela **acompanha a granularidade do target**: não prometa mais finura do que o dado tem.
+- O target pode ser **binário (propensão)** ou de **intensidade (regressão)**, e o score herda esse significado.
+- Score probabilístico exige **calibração**; senão, chame-o de índice.
+- O significado do score se escreve **antes da avaliação**, com leitura permitida e proibida.
+
+## Referências
+
+- [Termo de abertura do case Ambev](/projetos/ambev/tapi): seções "Dados e formulação" e "Modelagem, avaliação e explicabilidade".
+- [Validação temporal e por canal](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/validacao-temporal-e-por-canal): troque "canal" por "região" para o case Ambev.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [Introduction to ML Problem Framing (Google)](https://developers.google.com/machine-learning/problem-framing) *(em inglês)*: a seção sobre definir o rótulo e a unidade de previsão.
+- [scikit-learn: regressão logística](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression) *(em inglês)*: o primeiro modelo candidato para um target binário de ocasião.
+
+**Vídeos**
+
+- [StatQuest: Logistic Regression](https://www.youtube.com/watch?v=yIYKR4sgzI8) *(em inglês)*: a intuição do modelo que transforma contexto em probabilidade.
+- [Odds and Log(Odds), Clearly Explained (StatQuest)](https://www.youtube.com/watch?v=ARfXDSkQf1Y) *(em inglês)*: o que é a escala de log-odds em que o score é calculado.
+
+**Próxima aula:** [Instante de previsão com dados de contexto](/projetos/ambev/materiais/instante-de-previsao-com-dados-de-contexto): quais features de clima, Trends e calendário existem na hora de prever.

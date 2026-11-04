@@ -1,0 +1,192 @@
+---
+sidebar_position: 12
+sidebar_label: 'Integrando fontes de granularidades diferentes'
+title: 'Integrando fontes de granularidades diferentes'
+description: 'Como juntar fontes com períodos e níveis diferentes sem vazamento: unidade de análise, agregação antes do join, merge_asof, tolerância temporal e checagens de cardinalidade.'
+tags: [ml-preditivo, dados, integracao, merge-asof]
+---
+
+# Integrando Fontes de Granularidades Diferentes
+
+<LessonMeta
+  tempo="40 min"
+  semana={1}
+  etapa={['dados', 'avaliacao']}
+  objetivos={[
+    'Escolher a unidade de análise e agregar cada fonte para ela antes do join',
+    'Usar merge_asof para juntar o valor mais recente anterior ao instante de previsão',
+    'Controlar a idade máxima de um valor com tolerance',
+    'Checar que o join não criou nem perdeu linhas',
+  ]}
+  prerequisitos={[
+    {label: 'O tempo mente', to: '/aulas/ml-preditivo-e-agentes/formulacao-e-dados/o-tempo-mente'},
+    {label: 'Vazamento de dados', to: '/aulas/ml-preditivo-e-agentes/avaliacao-honesta/vazamento-de-dados'},
+  ]}
+/>
+
+Juntar duas tabelas é fácil. Juntar duas tabelas **certas**, com períodos e níveis diferentes, é onde mora o erro de integração mais comum. Um alvo diário, uma leitura de sensor a cada hora irregular e um cadastro que nunca muda: cada fonte descreve o mundo em uma granularidade, e juntá-las sem cuidado ou copia valores onde não deveria, ou usa um valor do futuro.
+
+:::info[Ideia central]
+Antes de qualquer `merge`, decida a **unidade de análise** (o que é uma linha) e leve cada fonte até ela. O join só junta o que já está no mesmo nível. Para dados com tempo, o valor que entra deve ser **o mais recente disponível antes do instante de previsão**, e não o mais próximo.
+:::
+
+---
+
+## Um roteiro de integração
+
+1. **Liste a granularidade de cada fonte** (por dia, por hora, por pedido, por município, estática).
+2. **Defina a unidade do painel**, que acompanha o alvo.
+3. **Agregue** cada fonte mais fina para a unidade (soma, média, máximo, último valor).
+4. **Junte por chaves coerentes** (código de município e não nome; data e não texto).
+5. **Para fontes com tempo irregular, use `merge_asof`** com direção para trás.
+6. **Cheque a cardinalidade:** o número de linhas e a unicidade da chave não mudam.
+
+---
+
+## `merge_asof`: o valor mais recente anterior
+
+Para dados com tempo, o join por igualdade quase nunca casa (a leitura é às 06h, o instante de previsão às 20h). O `merge_asof` procura, para cada linha, a linha da outra tabela **mais recente que não passa do instante**.
+
+```python
+import pandas as pd
+
+# Alvo observado por dia e município (a unidade de análise).
+alvo = pd.DataFrame({
+    "municipio": ["A", "A", "A", "B", "B", "B"],
+    "data": pd.to_datetime(["2026-03-02", "2026-03-03", "2026-03-04"] * 2),
+    "pedidos": [10, 14, 9, 5, 7, 6],
+}).sort_values("data")
+
+# Fonte com outra granularidade: leituras de clima em horários irregulares.
+clima = pd.DataFrame({
+    "municipio": ["A", "A", "A", "B", "B"],
+    "lido_em": pd.to_datetime(["2026-03-02 06:00", "2026-03-03 18:00", "2026-03-05 06:00",
+                               "2026-03-02 12:00", "2026-03-04 12:00"]),
+    "temp": [24.0, 28.0, 21.0, 30.0, 27.0],
+}).sort_values("lido_em")
+
+# O instante de previsão de cada linha: 20h do dia anterior.
+alvo["instante_previsao"] = alvo["data"] - pd.Timedelta(hours=4)
+
+painel = pd.merge_asof(
+    alvo, clima,
+    left_on="instante_previsao", right_on="lido_em",
+    by="municipio", direction="backward",      # só olha para o passado
+    tolerance=pd.Timedelta(days=1),             # leitura velha demais vira NaN
+)
+print(painel[["municipio", "data", "lido_em", "temp"]])
+
+assert len(painel) == len(alvo)
+assert not painel.duplicated(["municipio", "data"]).any()
+assert (painel.lido_em.dropna() <= painel.instante_previsao[painel.lido_em.notna()]).all()
+```
+
+A saída obtida:
+
+```text
+  municipio       data             lido_em  temp
+0         A 2026-03-02                 NaT   NaN
+1         B 2026-03-02                 NaT   NaN
+2         A 2026-03-03 2026-03-02 06:00:00  24.0
+3         B 2026-03-03 2026-03-02 12:00:00  30.0
+4         A 2026-03-04 2026-03-03 18:00:00  28.0
+5         B 2026-03-04                 NaT   NaN
+```
+
+O que o código faz:
+
+- **`by="municipio"`** garante que cada município só casa com as próprias leituras.
+- **`direction="backward"`** só olha o passado: a leitura de `2026-03-05` nunca entra numa linha anterior a ela.
+- **`tolerance`** descarta leituras velhas demais. A linha 5 (município B, dia 04) não recebe valor: a última leitura é de 32 horas antes do instante, além do limite de 1 dia. É melhor um `NaN` explícito do que uma temperatura de dois dias atrás passando por atual.
+- **O instante de previsão** (`data` menos 4 horas, ou seja, 20h do dia anterior) é uma coluna da tabela, e a leitura escolhida respeita-o.
+
+As três asserções finais conferem: o número de linhas não mudou, a chave `(municipio, data)` continua única e nenhuma leitura é posterior ao instante.
+
+:::warning[Requisitos do merge_asof]
+As duas tabelas precisam estar **ordenadas** pela chave de tempo, e as colunas de tempo precisam ter o **mesmo tipo e o mesmo fuso**. O erro de ordenação o Pandas avisa; o de fuso horário às vezes só aparece como `NaN` em todo lugar.
+:::
+
+---
+
+## Chaves e armadilhas
+
+| Cuidado | Por quê |
+| :--- | :--- |
+| **Código em vez de nome** | Nomes têm acento, homônimos e grafias diferentes |
+| **Agregar antes de juntar** | Juntar uma fonte horária a uma tabela diária multiplica as linhas |
+| **Valor grosso em linha fina** | Copiar um dado anual em 365 linhas cria falsas observações independentes |
+| **Fusos horários** | Um deslocamento de 3 horas muda o dia de metade das linhas |
+| **Dado estático** | Trate como uma foto: ele vale a partir da sua data, não antes |
+
+<NoProjeto titulo="No projeto: Galaxies e Ambev">
+No Galaxies, as estatísticas do canal precisam ser as vistas **na data da publicação**, e não as de hoje: é um `merge_asof` por canal com direção para trás. No Ambev, o painel município por semana junta alvo, clima, calendário, Censo e oferta; o passo a passo em DuckDB, com o ASOF join e as checagens de cardinalidade, está em [Juntando granularidades no DuckDB](/projetos/ambev/materiais/juntando-granularidades-no-duckdb).
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de integração]
+1. **Juntar antes de agregar.** O número de linhas explode.
+2. **Escolher o valor mais próximo em vez do último anterior.** Pode ser um valor do futuro.
+3. **Sem tolerância.** Um valor muito antigo se passa por atual.
+4. **Não testar a chave.** Uma duplicata pesa duas vezes na métrica.
+5. **Misturar fusos horários.** O dia muda e ninguém percebe.
+:::
+
+<Quiz
+  id="m1-a12"
+  perguntas={[
+    {
+      pergunta: 'Por que `merge_asof` com `direction="backward"` evita vazamento?',
+      opcoes: [
+        {texto: 'Só usa valores iguais ou anteriores ao instante de cada linha', correta: true, explicacao: 'Nenhum valor do futuro entra na linha.'},
+        {texto: 'Ordena os dados automaticamente', explicacao: 'Você precisa ordenar antes.'},
+        {texto: 'Remove linhas duplicadas', explicacao: 'Não é a função dele.'},
+      ],
+    },
+    {
+      pergunta: 'Uma linha não recebeu valor por causa do `tolerance`. O que isso significa?',
+      opcoes: [
+        {texto: 'A última leitura existente era velha demais, e o `NaN` é mais honesto que usá-la', correta: true, explicacao: 'A tolerância limita a idade máxima do valor.'},
+        {texto: 'O join falhou', explicacao: 'O resultado é o esperado.'},
+        {texto: 'O município não existe', explicacao: 'A causa é a idade da leitura.'},
+      ],
+    },
+    {
+      pergunta: 'Você junta uma tabela de 1.000 linhas diárias a uma de 24.000 leituras horárias por data e fica com 24.000 linhas. Qual é o erro?',
+      opcoes: [
+        {texto: 'Não agregou as leituras horárias para o dia antes de juntar', correta: true, explicacao: 'O join por data multiplicou cada dia por 24.'},
+        {texto: 'A biblioteca está com defeito', explicacao: 'O join fez o que foi pedido.'},
+        {texto: 'Faltou ordenar', explicacao: 'A ordenação não explica a multiplicação.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: valor mais recente]
+Crie duas tabelas pequenas: pedidos com data e leituras de preço em horários irregulares. Junte com `merge_asof` para trás, com `tolerance` de 2 dias, e confira quais pedidos ficaram sem preço. Troque `backward` por `nearest` e veja que um preço do futuro entra.
+
+<details>
+<summary>Dica</summary>
+
+Com `nearest`, o valor pode vir depois do instante. Compare as duas colunas de tempo (`instante` e `lido_em`) e veja em quais linhas a leitura é posterior.
+</details>
+:::
+
+---
+
+## Resumo
+
+- **Decida a unidade** e **agregue cada fonte para ela** antes de juntar.
+- Use **`merge_asof` para trás** para pegar o último valor disponível no instante.
+- **`tolerance`** impede que um valor velho passe por atual.
+- **Chaves coerentes** (códigos, datas, fusos) e **checagens de cardinalidade** evitam o erro silencioso.
+- Um valor **grosso** não vira várias observações **finas**.
+
+## Referências
+
+- [`pandas.merge_asof`](https://pandas.pydata.org/docs/reference/api/pandas.merge_asof.html): parâmetros `by`, `direction` e `tolerance`.
+- [Features do canal e do tempo](/aulas/ml-preditivo-e-agentes/gradient-boosting/features-do-canal-e-do-tempo): features de histórico sem vazamento.
+
+**Próxima aula:** [Scraping e termos de uso](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/scraping-e-termos-de-uso): quando usar uma API em vez de um scraper.

@@ -1,0 +1,180 @@
+---
+sidebar_position: 9
+sidebar_label: 'Ground truth vs. proxy'
+title: 'Ground truth vs. proxy'
+description: 'Quando o alvo não é observado diretamente: como avaliar a validade de um proxy, o viés de medição que ele carrega e o que o modelo passa a prever de fato.'
+tags: [ml-preditivo, dados, proxy, target]
+---
+
+# Ground Truth vs. Proxy: o que o Modelo Passa a Prever de Fato
+
+<LessonMeta
+  tempo="35 min"
+  semana={1}
+  etapa="dados"
+  objetivos={[
+    'Distinguir ground truth, proxy e feature de contexto',
+    'Reconhecer como um proxy carrega confundidores e viés de medição',
+    'Comparar um proxy com o ground truth dentro de grupos e em uma amostra auditada',
+    'Escrever, para qualquer target indireto, o que o modelo passa a prever de fato',
+  ]}
+  prerequisitos={[
+    {label: 'Anatomia de um problema supervisionado', to: '/aulas/ml-preditivo-e-agentes/formulacao-e-dados/anatomia-de-um-problema-supervisionado'},
+  ]}
+/>
+
+Quase nenhum problema real entrega o alvo que você queria. Você queria prever a **qualidade** de um criativo e tem **curtidas**. Queria prever o **consumo** de um produto e tem **buscas**. Queria prever a **necessidade de saúde** de um paciente e tem o **custo** do seu tratamento. Em todos os casos, o que você observa é um **proxy**: um sinal que costuma andar junto com o que importa, mas não é a mesma coisa.
+
+O modelo não sabe disso. Ele aprende a prever a coluna que você deu a ele, com toda a competência, e se a coluna mede outra coisa, o modelo prevê outra coisa.
+
+:::info[Definições]
+- **Ground truth:** a medida direta do que você quer prever, ou a mais próxima que existe.
+- **Proxy:** um sinal indireto usado no lugar do ground truth, quando o ground truth não está disponível.
+- **Feature contextual:** informação que descreve o contexto e entra como **entrada**, não como alvo.
+
+Um mesmo dado muda de papel conforme o problema: as buscas podem ser um proxy (alvo) ou uma feature (entrada). O que muda é o que você está afirmando.
+:::
+
+---
+
+## Por que o proxy engana
+
+Um proxy erra de formas previsíveis:
+
+| Problema | O que acontece | Exemplo |
+| :--- | :--- | :--- |
+| **Confundidor** | O proxy depende de algo que não é o que você quer medir | Curtidas dependem do tamanho do canal, não só da qualidade |
+| **Viés de medição** | O proxy mede melhor uns grupos do que outros | Custo de tratamento depende do acesso à saúde |
+| **Mudança de regime** | A plataforma muda como o proxy é contado | Uma nova regra de contagem de visualizações |
+| **Efeito de seleção** | Só aparece no proxy quem foi observado | Só compra quem viu o anúncio |
+
+Um caso clássico de proxy mal escolhido está em Obermeyer e coautores (2019): um algoritmo de saúde usava o **custo** previsto como proxy de **necessidade**. Como pessoas com o mesmo nível de necessidade geravam custos diferentes conforme o acesso ao sistema de saúde, o algoritmo subestimava a necessidade de um grupo. O modelo previa bem o custo e mal a necessidade.
+
+---
+
+## Um experimento pequeno
+
+O trecho abaixo simula grupos (canais, lojas ou cidades) com um **tamanho** que influencia o proxy. Os dados são **sintéticos**: sabemos a qualidade verdadeira, o que na vida real é justamente o que falta.
+
+```python
+import numpy as np
+import pandas as pd
+
+rng = np.random.default_rng(5)
+n = 3_000
+d = pd.DataFrame({"grupo": rng.integers(0, 30, n)})           # ex.: um canal, uma loja, uma cidade
+d["tamanho"] = d.grupo.map(dict(enumerate(rng.normal(0, 2, 30))))   # confundidor do grupo
+d["qualidade"] = rng.normal(0, 1, n)                           # o que queremos medir (ground truth)
+d["proxy"] = d.qualidade + 1.5 * d.tamanho + rng.normal(0, 1, n)    # o que de fato observamos
+
+corr_global = d[["qualidade", "proxy"]].corr().iloc[0, 1]
+dentro = d.assign(q=d.qualidade - d.groupby("grupo").qualidade.transform("mean"),
+                  p=d.proxy - d.groupby("grupo").proxy.transform("mean"))
+corr_dentro = dentro[["q", "p"]].corr().iloc[0, 1]
+corr_proxy_tamanho = d[["proxy", "tamanho"]].corr().iloc[0, 1]
+print(round(corr_global, 2), round(corr_dentro, 2), round(corr_proxy_tamanho, 2))
+
+# Auditoria: uma amostra pequena com o ground truth medido de verdade.
+audit = d.sample(200, random_state=0)
+print(round(audit[["qualidade", "proxy"]].corr().iloc[0, 1], 2))
+assert corr_dentro > corr_global and corr_proxy_tamanho > 0.8
+```
+
+A saída obtida com a semente do exemplo:
+
+```text
+0.3 0.7 0.92
+0.42
+```
+
+Como ler:
+
+- **0,30:** a correlação **global** entre o proxy e a qualidade verdadeira é baixa, porque o tamanho do grupo domina o proxy.
+- **0,70:** **dentro de cada grupo**, a correlação sobe. Ao comparar itens do mesmo grupo, o confundidor desaparece.
+- **0,92:** o proxy está quase todo explicado pelo **tamanho**. Um modelo treinado nele aprenderia, sobretudo, a reconhecer grupos grandes.
+- **0,42:** numa **auditoria** com 200 itens de ground truth medido, a correlação continua moderada. A auditoria é como você descobre isso na prática.
+
+A lição: o proxy não é "bom" ou "ruim" em geral. Ele é bom para **uma pergunta**. Para ordenar itens **dentro do mesmo grupo**, serve; para ordenar grupos entre si, mede principalmente tamanho.
+
+---
+
+## Como avaliar um proxy
+
+1. **Relevância.** Por que esse sinal deveria andar com o que importa? Escreva o mecanismo.
+2. **Confundidores.** Que variáveis movem o proxy sem mover o que importa? Compare **dentro de grupos**.
+3. **Estabilidade.** O proxy mudou de definição ou de regime no período?
+4. **Auditoria.** Existe uma amostra pequena com o ground truth? Compare, mesmo com 100 ou 200 itens.
+5. **Reformulação honesta.** Escreva a frase: "o modelo prevê **X**, que usamos como aproximação de **Y**".
+
+<NoProjeto titulo="No projeto: Galaxies e Ambev">
+No case Galaxies, curtidas são proxy de performance criativa, e a decisão real compara dois criativos **do mesmo canal**, exatamente o caso em que o proxy funciona melhor (dentro do grupo). No case Ambev, nenhuma fonte aberta mede a ocasião Pizza + Guaraná diretamente: o target é uma aproximação, e Google Trends é proxy de interesse que o TAPI proíbe como target. Veja [O target que não existe](/projetos/ambev/materiais/o-target-que-nao-existe).
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de proxy]
+1. **Tratar o proxy como o fenômeno.** "Prevemos o consumo" quando você prevê buscas.
+2. **Avaliar só no agregado.** A correlação global esconde o confundidor.
+3. **Ignorar mudanças de regime.** Antes e depois de uma mudança de contagem são alvos diferentes.
+4. **Nunca auditar.** Sem uma amostra de ground truth, a validade do proxy é uma aposta.
+5. **Usar um proxy como target e também como feature.** O modelo apenas reproduz o alvo.
+:::
+
+<Quiz
+  id="m1-a9"
+  perguntas={[
+    {
+      pergunta: 'Um modelo prevê o custo de tratamento como proxy da necessidade de saúde. O que pode dar errado?',
+      opcoes: [
+        {texto: 'Nada, custo e necessidade são a mesma coisa', explicacao: 'O custo depende também de acesso e de outros fatores.'},
+        {texto: 'Grupos com o mesmo nível de necessidade e custos diferentes serão tratados de modo diferente', correta: true, explicacao: 'O modelo aprende o custo, não a necessidade, e herda o viés do proxy.'},
+        {texto: 'O modelo vai demorar mais para treinar', explicacao: 'O problema é de validade, não de desempenho computacional.'},
+      ],
+    },
+    {
+      pergunta: 'A correlação global do proxy com a qualidade é 0,30, e dentro dos grupos é 0,70. O que isso sugere?',
+      opcoes: [
+        {texto: 'O proxy é ruim em qualquer uso', explicacao: 'Dentro dos grupos ele funciona razoavelmente.'},
+        {texto: 'Há um confundidor entre grupos, e o proxy serve melhor para comparar itens do mesmo grupo', correta: true, explicacao: 'Comparar dentro do grupo remove o confundidor.'},
+        {texto: 'Os dados estão corrompidos', explicacao: 'É o comportamento esperado quando o proxy depende de um fator de grupo.'},
+      ],
+    },
+    {
+      pergunta: 'Qual redação descreve o target de modo honesto?',
+      opcoes: [
+        {texto: 'O modelo prevê o interesse do consumidor', explicacao: 'Vago e pode ser falso.'},
+        {texto: 'O modelo prevê o volume de buscas, que usamos como aproximação do interesse', correta: true, explicacao: 'Diz o que é previsto e o que é aproximado.'},
+        {texto: 'O modelo prevê a verdade', explicacao: 'Não diz nada sobre o alvo.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: reescreva o seu alvo]
+Escolha um problema que você conhece em que o alvo é um proxy. Escreva: o que você queria prever, o que você tem, o mecanismo que liga os dois, dois confundidores possíveis e como você auditaria o proxy com uma amostra pequena.
+
+<details>
+<summary>Dica</summary>
+
+Se você não consegue escrever o mecanismo que liga o proxy ao que importa, a relação é uma aposta. Procure uma amostra, mesmo pequena, com o ground truth.
+</details>
+:::
+
+---
+
+## Resumo
+
+- **Ground truth** é a medida direta; **proxy** é um sinal indireto; **feature** é entrada, não alvo.
+- O modelo prevê **o que você deu a ele**, e se for um proxy, ele prevê o proxy.
+- Proxies carregam **confundidores, viés de medição e mudanças de regime**.
+- Compare **dentro de grupos** e com uma **amostra auditada** de ground truth.
+- Escreva sempre: "o modelo prevê X, usado como aproximação de Y".
+
+## Referências
+
+- Obermeyer, Powers, Vogeli e Mullainathan. [*Dissecting racial bias in an algorithm used to manage the health of populations*](https://doi.org/10.1126/science.aax2342). Science, 2019. O exemplo do custo como proxy de necessidade.
+- [O target que não existe](/projetos/ambev/materiais/o-target-que-nao-existe): a aplicação ao case Ambev.
+
+**Próxima aula:** [Coletando dados de APIs públicas](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/coletando-dados-de-apis-publicas): paginação, rate limit, retry e snapshots datados, para qualquer API.

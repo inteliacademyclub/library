@@ -1,0 +1,140 @@
+---
+secao: guias
+sidebar_position: 3
+sidebar_label: 'Monte sua base'
+title: 'Monte sua base do case Ambev'
+description: 'Guia prático, das fontes ao painel documentado: chave territorial do IBGE, calendário, clima sem vazamento, território, proxy de interesse, montagem no DuckDB, validação e Data Card.'
+---
+
+# Monte sua Base do Case Ambev: o Passo a Passo
+
+Neste case **você monta a própria base** a partir de fontes abertas. Este guia é o roteiro prático, na ordem em que as coisas costumam dar certo. A teoria e o código testado de cada etapa estão nos [materiais de estudo](/projetos/ambev/materiais/temas-e-prioridades) e nas aulas da [trilha geral](/aulas/ml-preditivo-e-agentes/formulacao-e-dados), sempre linkados.
+
+:::warning[Antes de baixar qualquer coisa]
+Decida a **unidade de análise** e o **target**. Elas definem quais fontes entram, em que granularidade e com qual chave. Comece por [Unidade de análise e formulação do score](/projetos/ambev/materiais/unidade-de-analise-e-formulacao-do-score) e [O target que não existe](/projetos/ambev/materiais/o-target-que-nao-existe).
+:::
+
+---
+
+## Passo 1 · Defina a unidade e o instante de previsão
+
+Escreva, numa frase, **o que é uma linha** e **quando a previsão é feita**. Exemplo: "uma linha é um município num dia e período (almoço ou jantar); a previsão é feita às 10 h do mesmo dia".
+
+Isso decide o resto: com previsão às 10 h, o clima da noite precisa ser o **previsto**, não o observado. Aula: [Instante de previsão com dados de contexto](/projetos/ambev/materiais/instante-de-previsao-com-dados-de-contexto).
+
+---
+
+## Passo 2 · Baixe a chave territorial (IBGE)
+
+Todas as fontes se juntam pelo **código IBGE do município** (7 dígitos). Baixe a lista uma vez e guarde:
+
+```text
+GET https://servicodados.ibge.gov.br/api/v1/localidades/municipios
+```
+
+Guarde `id` (código IBGE), nome, UF e região. **Nunca junte por nome de município**: há nomes repetidos entre estados e grafias diferentes entre fontes.
+
+Para mapas e joins espaciais, use as malhas do `geobr`, que já vêm com o código IBGE. Aula: [Dados geoespaciais para ML](/aulas/ml-preditivo-e-agentes/gradient-boosting/dados-geoespaciais-para-ml).
+
+---
+
+## Passo 3 · Monte o calendário
+
+Gere uma linha por dia do período estudado, com dia da semana, fim de semana, período e feriado. Os feriados nacionais vêm da BrasilAPI, um ano por chamada:
+
+```text
+GET https://brasilapi.com.br/api/feriados/v1/2026
+```
+
+Feriados municipais **não** vêm nessa API. Se usar, documente a fonte; se não usar, diga no Data Card que ficaram de fora.
+
+---
+
+## Passo 4 · Baixe o clima sem vazar o futuro
+
+| Para quê | Endpoint | Observação |
+| :--- | :--- | :--- |
+| **Feature do modelo** (previsão feita antes do dia) | `https://previous-runs-api.open-meteo.com/v1/forecast` | Peça a variável com o sufixo da antecedência: `temperature_2m_previous_day1` é a previsão emitida 24 h antes. Na maioria dos modelos, só existe desde jan/2024 |
+| **EDA e explicação** | `https://archive-api.open-meteo.com/v1/archive` | Clima observado (ERA5). Vaza se usado como feature antes do dia |
+
+Os dois aceitam `latitude`, `longitude`, `start_date`, `end_date` e `timezone=America/Sao_Paulo`. No archive, peça `hourly=temperature_2m,precipitation`; na Previous Runs, `hourly=temperature_2m_previous_day1,precipitation_previous_day1`. Use o **centroide do município** (do `geobr`) como coordenada e guarde, junto com cada valor, de qual API e de qual antecedência ele veio.
+
+:::warning[Historical Forecast não é previsão com antecedência]
+A Historical Forecast API emenda só as primeiras horas de cada rodada do modelo. Ela não mostra o que se previa 24 horas antes e, por isso, não resolve o vazamento.
+:::
+
+---
+
+## Passo 5 · Some o território e a oferta
+
+- **Perfil do município:** população, renda e domicílios do Censo 2022 no [SIDRA](https://sidra.ibge.gov.br/). É uma foto: não trate como série.
+- **Oferta:** pizzarias por município pelo Overpass (`cuisine=pizza`). Teste a consulta no [Overpass Turbo](https://overpass-turbo.eu/), salve o resultado com a data e **normalize pela população**.
+- **Cobertura:** o OSM é irregular entre cidades. Se possível, compare com a contagem de restaurantes do CNPJ e documente as diferenças.
+
+---
+
+## Passo 6 · Colete o proxy de interesse (opcional)
+
+Google Trends dá interesse relativo de busca por UF e período. É **contexto ou proxy**, **nunca target**. Se usar:
+
+- Guarde cada consulta com a **data da coleta**, porque a escala muda entre requisições.
+- Use só o que já estava disponível no instante de previsão (semana anterior, não a mesma semana).
+
+Aula: [Trend Radar](/projetos/ambev/materiais/trend-radar).
+
+---
+
+## Passo 7 · Salve cada coleta com a data
+
+Sugestão de organização:
+
+```text
+data/
+├─ raw/
+│  ├─ ibge_municipios/coleta=2026-11-03/municipios.parquet
+│  ├─ feriados/coleta=2026-11-03/feriados_2024_2026.parquet
+│  ├─ clima_previsto/coleta=2026-11-03/clima.parquet
+│  ├─ clima_observado/coleta=2026-11-03/clima.parquet
+│  ├─ censo/coleta=2026-11-03/municipios_censo2022.parquet
+│  └─ osm/coleta=2026-11-03/pizzarias.parquet
+├─ processed/
+│  └─ painel_v1.parquet      # uma linha por unidade de análise
+└─ README.md                 # de onde veio cada pasta
+```
+
+Nunca sobrescreva uma coleta: crie outra pasta com a nova data. É isso que permite reproduzir o resultado. Coletores com retry, timeout e testes sem rede estão em [Coletando dados de APIs públicas](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/coletando-dados-de-apis-publicas).
+
+---
+
+## Passo 8 · Monte o painel e valide
+
+1. **Junte no DuckDB** com ASOF join, para que cada linha só receba o que era conhecido no instante de previsão. Aula: [Juntando granularidades no DuckDB](/projetos/ambev/materiais/juntando-granularidades-no-duckdb).
+2. **Confira a cardinalidade:** o painel precisa ter exatamente uma linha por unidade. Um join que duplica linhas é o erro mais comum.
+3. **Valide o esquema** com pandera: tipos, nulos, faixas (temperatura, chuva) e chave única. Aula: [Validando dados na entrada](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/validando-dados-na-entrada).
+4. **Faça a EDA** antes de modelar. Aula: [EDA da ocasião e features de contexto](/projetos/ambev/materiais/eda-da-ocasiao-e-features-de-contexto).
+
+---
+
+## Passo 9 · Documente (Data Card)
+
+Preencha os nove itens do TAPI com o [Data Card da ocasião](/projetos/ambev/materiais/data-card-da-ocasiao). Ele precisa dizer, no mínimo:
+
+- **Fontes, datas de coleta e licenças** de cada pasta de `raw/`.
+- **Unidade de análise, target e instante de previsão.**
+- **Como as granularidades foram integradas** e o que foi descartado.
+- **O que a base não representa:** municípios sem cobertura de OSM ou INMET, feriados municipais, consumo fora das capitais.
+
+<Checklist
+  id="ambev-base"
+  titulo="Sua base está pronta quando…"
+  itens={[
+    'Unidade de análise, target e instante de previsão escritos numa frase cada',
+    'Todos os joins usam o código IBGE do município, nunca o nome',
+    'O clima usado como feature é o previsto com a antecedência do instante de previsão (Previous Runs), não o observado',
+    'Trends, se usado, só entra com dados anteriores ao instante de previsão',
+    'Cada coleta está salva com a data e nenhuma foi sobrescrita',
+    'O painel tem exatamente uma linha por unidade de análise',
+    'O esquema é validado com pandera antes do treino',
+    'O Data Card está preenchido, incluindo o que a base não representa',
+  ]}
+/>

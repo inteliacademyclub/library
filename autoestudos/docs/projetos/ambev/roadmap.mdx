@@ -1,0 +1,136 @@
+---
+secao: entregas
+sidebar_position: 3
+sidebar_label: 'Roadmap por etapa'
+title: 'Roadmap por etapa'
+description: 'As etapas do case Ambev, da formulação à entrega, com checkpoints, a aula certa para cada uma e o que priorizar se o tempo apertar.'
+---
+
+# Roadmap: da Formulação à Entrega
+
+O case tem uma dependência forte: **sem target defensável não há modelo, e sem modelo o Decision Engine só aplica regras sobre um número sem sentido**. O roteiro segue as etapas do projeto. Como as datas ainda não foram definidas, cada etapa traz uma **definição de pronto** em vez de um prazo. Marque os itens: o progresso fica salvo no seu navegador.
+
+:::warning[O gargalo do case é o ground truth]
+Nenhuma fonte aberta tem pizza com Guaraná por dia e município. A etapa 1 decide o resto do projeto, e a aula mais importante dos [materiais](/projetos/ambev/materiais/temas-e-prioridades) é a de formulação do target.
+:::
+
+---
+
+## Etapa 1 · Formulação
+
+**Objetivo:** ter a unidade de análise, o target e o significado do Occasion Score escritos antes de coletar qualquer dado.
+
+Leia: [Anatomia de um problema supervisionado](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/anatomia-de-um-problema-supervisionado) e [Fontes de dados e plano da base](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/fontes-de-dados-e-plano-da-base).
+
+<Checklist
+  id="ambev-etapa-1"
+  titulo="Pronto quando…"
+  itens={[
+    {texto: 'Unidade de análise escolhida e justificada', detalhe: 'Pedido, consumidor por período ou município por semana.'},
+    {texto: 'Target definido como ground truth (ou proxy de consumo, como o Vigitel), com o que ele mede de fato', detalhe: 'Proxy de interesse, como o Google Trends, e o tipo de ativação nunca são o target.'},
+    'Significado do Occasion Score escrito antes da avaliação',
+    'Instante de previsão declarado',
+    'Fontes escolhidas com o papel de cada uma (ground truth, contexto ou proxy de interesse)',
+  ]}
+/>
+
+---
+
+## Etapa 2 · Dados
+
+**Objetivo:** base integrada, documentada e sem vazamento.
+
+Leia: [O tempo mente](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/o-tempo-mente), [Documentação, ética e termos](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/documentacao-etica-e-termos) e [Vazamento de dados](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/vazamento-de-dados). Depois o [guia de fontes e APIs](/projetos/ambev/materiais/guia-de-fontes-e-apis).
+
+<Checklist
+  id="ambev-etapa-2"
+  titulo="Pronto quando…"
+  itens={[
+    'Coleta das fontes em pipeline reprodutível, com snapshots datados',
+    {texto: 'Joins por chaves coerentes (data, código IBGE, UF, município)', detalhe: 'Sem misturar períodos ou granularidades incompatíveis.'},
+    'Features de calendário, clima, território e oferta, e interações como dia por período',
+    {texto: 'Toda feature disponível até o instante de previsão', detalhe: 'Atenção ao clima observado versus previsto.'},
+    'EDA por dia, período, região e clima',
+    'Data Card com os itens exigidos pelo TAPI',
+  ]}
+/>
+
+---
+
+## Etapa 3 · Modelo
+
+**Objetivo:** um modelo que **bate o baseline** em validação temporal, com Occasion Score e explicação.
+
+Leia: [Baselines](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/baselines), [Validação temporal e por canal](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/validacao-temporal-e-por-canal), [Métricas de erro e ordenação](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/metricas-de-erro-e-ordenacao) (a trilha só cobre regressão; para classificação veja os [temas gerais](/projetos/ambev/materiais/temas-e-prioridades)) e [SHAP na prática](/aulas/ml-preditivo-e-agentes/incerteza-e-explicabilidade/shap-na-pratica).
+
+<Checklist
+  id="ambev-etapa-3"
+  titulo="Pronto quando…"
+  itens={[
+    {texto: 'Baseline "frequência histórica por dia e período" implementado', detalhe: 'Mostra se o modelo aprende algo além de "sexta à noite é bom para pizza".'},
+    'Pelo menos um modelo de maior capacidade (Regressão Logística, Random Forest ou Gradient Boosting)',
+    {texto: 'Validação com componente temporal e split por região ou canal', detalhe: 'Embaralhamento aleatório não é a avaliação final.'},
+    'Métrica principal justificada pelo custo dos erros',
+    'Calibração verificada, se o score for probabilístico',
+    'Análise por segmentos: período, região, público e canal',
+    'Explicabilidade calculada sobre o modelo (SHAP ou permutation importance)',
+  ]}
+/>
+
+---
+
+## Etapa 4 · Decisão
+
+**Objetivo:** Decision Engine com regras documentadas e testadas.
+
+<Checklist
+  id="ambev-etapa-4"
+  titulo="Pronto quando…"
+  itens={[
+    'Tabela de regras: score, contexto e fatores apontam para uma categoria de ativação',
+    'Cada recomendação traz justificativa',
+    {texto: 'Testes com `pytest` cobrindo cada regra', detalhe: 'Casos limite incluídos.'},
+    {texto: 'Regra de awareness com a variável de "associação atual à marca" resolvida ou a limitação documentada', detalhe: 'Nenhuma fonte aberta mede isso diretamente.'},
+    'Nenhuma afirmação de causalidade na saída',
+  ]}
+/>
+
+---
+
+## Etapa 5 · Aplicação
+
+**Objetivo:** a interface e a API que o vídeo precisa mostrar funcionando.
+
+<Checklist
+  id="ambev-etapa-5"
+  titulo="Pronto quando…"
+  itens={[
+    {texto: 'API FastAPI com os seis campos de saída', detalhe: '`occasion_score`, `classification`, `top_factors`, `recommendation_category`, `recommendation_reason`, `model_metadata`.'},
+    'Metadados de versão na entrada',
+    'Streamlit com entrada de contexto, score, fatores e recomendação',
+    'Ambiente fixado (`uv` ou `requirements`) e Docker se necessário',
+  ]}
+/>
+
+---
+
+## Etapa 6 · Entrega
+
+**Objetivo:** repositório reproduzível e vídeo que demonstra o código de verdade.
+
+<Checklist
+  id="ambev-etapa-6"
+  titulo="Pronto quando…"
+  itens={[
+    {texto: 'Vídeo de até 5 minutos com uma execução completa: entrada, score e recomendação', detalhe: 'Critério eliminatório.'},
+    'O vídeo mostra métricas, validação, fontes, unidade de análise, target e arquitetura',
+    'README com arquitetura, dados, metodologia, resultados, limitações e execução',
+    'Resultados reprodutíveis a partir do código entregue',
+  ]}
+/>
+
+---
+
+## Se o tempo apertar
+
+Priorize o núcleo exigido: target defensável, baseline, um modelo que o supere em validação temporal, Decision Engine testado, aplicação funcional e vídeo. Trend Radar, Mapa de Oportunidade, Laboratório de Preço e clusterização são opcionais e só valem depois disso.

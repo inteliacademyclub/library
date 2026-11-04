@@ -1,0 +1,213 @@
+---
+sidebar_position: 7
+sidebar_label: 'Métricas de classificação'
+title: 'Métricas de classificação e custo dos erros'
+description: 'Matriz de confusão, precision, recall, F1, ROC-AUC e PR-AUC, e como escolher o limiar de decisão pelo custo dos erros, usando a validação e não o teste.'
+tags: [ml-preditivo, avaliacao, classificacao, metricas]
+---
+
+# Métricas de Classificação e o Custo dos Erros
+
+<LessonMeta
+  tempo="45 min"
+  semana={2}
+  etapa="avaliacao"
+  objetivos={[
+    'Ler uma matriz de confusão e derivar precision, recall e F1',
+    'Distinguir ROC-AUC de PR-AUC e saber quando cada uma engana',
+    'Escolher o limiar de decisão pelo custo dos erros',
+    'Escolher o limiar em dados de validação, nunca no teste',
+  ]}
+  prerequisitos={[
+    {label: 'Métricas de erro e de ordenação', to: '/aulas/ml-preditivo-e-agentes/avaliacao-honesta/metricas-de-erro-e-ordenacao'},
+    {label: 'Validação temporal e por canal', to: '/aulas/ml-preditivo-e-agentes/avaliacao-honesta/validacao-temporal-e-por-canal'},
+  ]}
+/>
+
+A aula anterior de métricas trata de regressão: o erro é uma distância entre dois números. Em classificação, o erro é de outro tipo: o modelo diz "sim" ou "não" e acerta ou erra. Mas há dois jeitos de errar, e eles quase nunca custam o mesmo. Um filtro de fraude que deixa passar uma fraude custa muito mais do que um que bloqueia por engano uma compra legítima; um alerta médico é o contrário em outros contextos. Escolher a métrica é, na prática, **escolher qual erro dói mais**.
+
+:::info[Ideia central]
+O modelo devolve um **score**. Quem transforma o score em "sim" ou "não" é o **limiar**, e o limiar é uma decisão de negócio: depende do custo de cada erro. Métricas como PR-AUC avaliam o score; precision, recall e F1 avaliam o score **mais** o limiar.
+:::
+
+---
+
+## A matriz de confusão
+
+| | Previsto: sim | Previsto: não |
+| :--- | :--- | :--- |
+| **Real: sim** | Verdadeiro positivo (VP) | Falso negativo (FN) |
+| **Real: não** | Falso positivo (FP) | Verdadeiro negativo (VN) |
+
+A partir dela:
+
+$$
+\text{precision} = \frac{VP}{VP + FP} \qquad
+\text{recall} = \frac{VP}{VP + FN} \qquad
+F_1 = \frac{2 \cdot \text{precision} \cdot \text{recall}}{\text{precision} + \text{recall}}
+$$
+
+- **Precision:** dos que o modelo marcou como "sim", quantos eram de fato? Pergunta "quando eu aciono, acerto?".
+- **Recall:** dos que eram "sim", quantos o modelo achou? Pergunta "estou deixando algum passar?".
+- **F1:** média harmônica das duas. Útil como resumo, mas trata os dois erros como igualmente caros, o que raramente é verdade.
+
+---
+
+## ROC-AUC e PR-AUC
+
+As duas medem a qualidade do **score** em todos os limiares possíveis, sem escolher um.
+
+| Métrica | O que mede | Quando engana |
+| :--- | :--- | :--- |
+| **ROC-AUC** | Probabilidade de um positivo ter score maior que um negativo | Com classe rara, a enorme quantidade de negativos faz a curva parecer boa mesmo com muitos falsos positivos |
+| **PR-AUC** (precisão média) | A precisão em cada nível de recall | É mais sensível à classe rara. O valor de referência de um modelo sem habilidade é a **prevalência**, e não 0,5 |
+
+Quando o positivo é raro, a **PR-AUC** costuma ser a mais informativa (veja [Desbalanceamento de classes](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/desbalanceamento-de-classes)). A ROC-AUC continua útil para comparar a **ordenação** quando as classes são mais equilibradas.
+
+---
+
+## Escolhendo o limiar pelo custo
+
+O trecho abaixo treina um modelo em dados **sintéticos**, com cerca de 11% de positivos, e escolhe o limiar que minimiza o custo total. O custo é **ilustrativo**: perder um positivo custa cinco vezes mais que acionar à toa.
+
+```python
+import numpy as np
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.metrics import (average_precision_score, confusion_matrix, f1_score,
+                             precision_score, recall_score)
+
+rng = np.random.default_rng(1)
+n = 30_000
+X = rng.normal(size=(n, 4))
+p = 1 / (1 + np.exp(-(-3.0 + 1.5 * X[:, 0] + 1.0 * X[:, 1] * (X[:, 2] > 0))))   # sintético
+y = (rng.random(n) < p).astype(int)
+a, b = int(n * 0.5), int(n * 0.7)           # divisão em ordem: treino, validação, teste
+X_tr, y_tr, X_va, y_va, X_te, y_te = X[:a], y[:a], X[a:b], y[a:b], X[b:], y[b:]
+
+modelo = HistGradientBoostingClassifier(random_state=0).fit(X_tr, y_tr)
+score_va, score = modelo.predict_proba(X_va)[:, 1], modelo.predict_proba(X_te)[:, 1]
+print("prevalência", round(y_te.mean(), 3), "| PR-AUC", round(average_precision_score(y_te, score), 3))
+
+# Custo por erro (ilustrativo): perder uma ocasião custa 5x mais que uma ativação à toa.
+C_FP, C_FN = 1.0, 5.0
+def custo(y_real, pred):
+    fp = int(((pred == 1) & (y_real == 0)).sum())
+    fn = int(((pred == 0) & (y_real == 1)).sum())
+    return C_FP * fp + C_FN * fn
+
+limiares = np.linspace(0.02, 0.9, 89)
+# O limiar é escolhido na VALIDAÇÃO e só depois aplicado ao teste.
+t_otimo = float(limiares[int(np.argmin([custo(y_va, (score_va >= t).astype(int)) for t in limiares]))])
+
+for nome, t in [("0,50 (padrão)", 0.5), (f"{t_otimo:.2f} (custo)", t_otimo)]:
+    pred = (score >= t).astype(int)
+    print(nome, "precision", round(precision_score(y_te, pred), 2), "recall", round(recall_score(y_te, pred), 2),
+          "F1", round(f1_score(y_te, pred), 2), "custo", int(custo(y_te, pred)))
+print(confusion_matrix(y_te, (score >= t_otimo).astype(int)))
+assert t_otimo < 0.5
+```
+
+A saída obtida com a semente do exemplo:
+
+```text
+prevalência 0.107 | PR-AUC 0.454
+0,50 (padrão) precision 0.63 recall 0.23 F1 0.34 custo 3817
+0.18 (custo) precision 0.37 recall 0.62 F1 0.46 custo 2846
+[[7027 1011]
+ [ 367  595]]
+```
+
+Como ler:
+
+- O limiar padrão de **0,50** tem a maior precision (0,63), mas encontra só 23% dos positivos. Como cada falso negativo custa cinco, o custo total fica em 3.817.
+- O limiar de **0,18**, escolhido para minimizar o custo, tem precision menor (0,37), mas recall de 0,62. O custo cai para 2.846, **25% menor**.
+- A matriz de confusão final mostra a troca: 1.011 falsos positivos em vez de muito menos, em troca de menos falsos negativos (367).
+
+:::warning[O limiar é escolhido na validação]
+O código divide os dados **em ordem**: treino, validação e teste. O limiar é escolhido na **validação**, e só depois aplicado ao teste. Escolher o limiar no teste faz o resultado parecer melhor do que será, porque o limiar "viu" a resposta.
+:::
+
+---
+
+## Como escolher a métrica principal
+
+| Se o erro mais caro é... | Priorize | Como |
+| :--- | :--- | :--- |
+| Deixar passar um positivo (FN) | **Recall** | Limiar mais baixo |
+| Acionar à toa (FP) | **Precision** | Limiar mais alto |
+| Os dois, em pesos conhecidos | **Custo esperado** | Minimize `C_FP × FP + C_FN × FN` |
+| Ordenar para uma fila limitada (top-k) | **Precision@k** | Avalie nos k primeiros |
+
+Se você não sabe os custos, diga isso, e mostre o desempenho em **vários limiares** (a curva de precisão e recall) em vez de um só.
+
+<NoProjeto titulo="No projeto: Galaxies e Ambev">
+O Galaxies é um problema de regressão e ordenação, mas a decisão "A ou B?" tem a mesma lógica de custo. No Ambev, o TAPI pede explicitamente que a métrica principal seja justificada pelo custo dos erros: um falso positivo gera uma ativação pouco relevante, e um falso negativo deixa passar uma ocasião relevante. Veja [Baseline "sexta à noite" e Occasion Score](/projetos/ambev/materiais/baseline-sexta-a-noite-e-occasion-score).
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de classificação]
+1. **Usar acurácia com classe rara.** Prever sempre "não" tem acurácia altíssima e valor zero.
+2. **Escolher o limiar no teste.** Vaza informação e infla o resultado.
+3. **Reportar só ROC-AUC.** Com classe rara, mostre também PR-AUC.
+4. **Usar F1 sem pensar nos custos.** Ele supõe que os dois erros custam o mesmo.
+5. **Esquecer a prevalência.** Uma PR-AUC de 0,45 significa coisas diferentes com prevalência de 1% ou de 40%.
+:::
+
+<Quiz
+  id="m2-a7"
+  perguntas={[
+    {
+      pergunta: 'Um falso negativo custa cinco vezes mais que um falso positivo. O que acontece com o limiar ótimo em relação a 0,50?',
+      opcoes: [
+        {texto: 'Fica abaixo de 0,50, para achar mais positivos', correta: true, explicacao: 'Quando perder um positivo é caro, vale aceitar mais falsos positivos.'},
+        {texto: 'Fica acima de 0,50', explicacao: 'Seria o caso se o falso positivo fosse o erro caro.'},
+        {texto: 'Continua exatamente em 0,50', explicacao: 'O 0,50 só é ótimo quando os custos são iguais e o modelo é calibrado.'},
+      ],
+    },
+    {
+      pergunta: 'Onde se escolhe o limiar de decisão?',
+      opcoes: [
+        {texto: 'No conjunto de teste, para obter o melhor resultado', explicacao: 'Escolher no teste vaza informação.'},
+        {texto: 'No conjunto de validação, e depois aplica-se ao teste', correta: true, explicacao: 'O teste fica intocado até a avaliação final.'},
+        {texto: 'No conjunto de treino', explicacao: 'O modelo já foi ajustado a esses dados, e o limiar ficaria otimista.'},
+      ],
+    },
+    {
+      pergunta: 'Com 1% de positivos, um modelo tem ROC-AUC de 0,90 e PR-AUC de 0,10. Como interpretar?',
+      opcoes: [
+        {texto: 'O modelo é excelente', explicacao: 'A PR-AUC de 0,10 é só dez vezes a prevalência, e a precisão em níveis úteis de recall pode ser baixa.'},
+        {texto: 'O ROC-AUC é otimista por causa da classe rara, e vale olhar a PR-AUC e a precisão em níveis úteis de recall', correta: true, explicacao: 'Com muitos negativos, a ROC-AUC esconde falsos positivos.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: encontre o seu limiar]
+Pegue um classificador seu, divida os dados em ordem (treino, validação, teste) e defina custos para FP e FN. Escolha o limiar na validação, reporte precision, recall e custo no teste e compare com o limiar de 0,50.
+
+<details>
+<summary>Dica</summary>
+
+Se você não sabe os custos, varie a razão `C_FN / C_FP` (1, 2, 5, 10) e mostre como o limiar ótimo se move. A decisão de negócio passa a ser escolher a razão, e não o limiar.
+</details>
+:::
+
+---
+
+## Resumo
+
+- A **matriz de confusão** gera **precision, recall e F1**.
+- **ROC-AUC** e **PR-AUC** avaliam o score; com classe rara, a **PR-AUC** é mais informativa.
+- O **limiar** é uma decisão de negócio, escolhida pelo **custo dos erros**.
+- Escolha o limiar na **validação**, e reporte no **teste**.
+- Mostre sempre a **prevalência** junto da PR-AUC.
+
+## Referências
+
+- [scikit-learn: métricas de classificação](https://scikit-learn.org/stable/modules/model_evaluation.html#classification-metrics). Definições de precision, recall, F1 e AUCs.
+- Saito e Rehmsmeier. [*The Precision-Recall Plot Is More Informative than the ROC Plot When Evaluating Binary Classifiers on Imbalanced Datasets*](https://doi.org/10.1371/journal.pone.0118432). PLOS ONE, 2015.
+
+**Próxima aula:** [Desbalanceamento de classes](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/desbalanceamento-de-classes): o que fazer quando o positivo é raro.

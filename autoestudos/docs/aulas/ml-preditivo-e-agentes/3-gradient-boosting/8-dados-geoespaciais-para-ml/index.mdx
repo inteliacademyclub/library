@@ -1,0 +1,211 @@
+---
+sidebar_position: 8
+sidebar_label: 'Dados geoespaciais para ML'
+title: 'Dados geoespaciais para ML'
+description: 'Como usar território em ML: geopandas, sistemas de coordenadas (CRS), spatial join, features por área, distâncias em metros e validação espacial para evitar vazamento entre vizinhos.'
+tags: [ml-preditivo, modelo, geoespacial, geopandas]
+---
+
+# Dados Geoespaciais para ML
+
+<LessonMeta
+  tempo="40 min"
+  semana={2}
+  etapa={['dados', 'modelo']}
+  objetivos={[
+    'Distinguir CRS geográfico de CRS projetado e saber quando cada um serve',
+    'Fazer um spatial join entre pontos e polígonos',
+    'Criar features por área (contagens) e por distância',
+    'Evitar vazamento espacial na validação',
+  ]}
+  prerequisitos={[
+    {label: 'Features do canal e do tempo', to: '/aulas/ml-preditivo-e-agentes/gradient-boosting/features-do-canal-e-do-tempo'},
+  ]}
+/>
+
+Muitos problemas de ML têm território: lojas, entregas, clientes, bairros, clima. "Onde" costuma explicar tanto quanto "quando". O que complica é que dados geográficos têm armadilhas próprias: um par de coordenadas sem sistema de referência não significa nada, distâncias em graus não são distâncias, e dois pontos vizinhos se parecem tanto que um deles no treino e outro no teste é vazamento.
+
+:::info[Ideia central]
+Todo dado geográfico tem um **CRS** (sistema de referência de coordenadas). Para **juntar** áreas, qualquer CRS conhecido serve; para **medir** distâncias e áreas, use um CRS **projetado**, em metros.
+:::
+
+:::info[Ambiente desta aula]
+Os trechos foram testados com Python 3.12, `geopandas` 1.2.0, `shapely` 2.2.0 e `pyproj` 3.8.0. Instale com `uv add geopandas==1.2.0 shapely==2.2.0 pyproj==3.8.0`. Em versões antigas do geopandas, `union_all()` se chama `unary_union`.
+:::
+
+---
+
+## CRS: graus e metros
+
+| Tipo | Exemplo | Unidade | Serve para |
+| :--- | :--- | :--- | :--- |
+| **Geográfico** | EPSG:4326 (latitude e longitude, WGS 84) | Graus | Armazenar e trocar dados, juntar áreas |
+| **Projetado** | EPSG:5880 (SIRGAS 2000 / Brazil Polyconic) | Metros | Distâncias, áreas e buffers |
+
+Um grau de longitude não mede o mesmo em todas as latitudes, então calcular distâncias em EPSG:4326 dá números sem unidade confiável. Antes de medir, **reprojete** com `to_crs`. Para análises locais, uma zona UTM também serve; EPSG:5880 cobre o Brasil todo com uma só projeção.
+
+---
+
+## Spatial join, contagens e distâncias
+
+O trecho abaixo usa dois bairros e quatro lojas **sintéticos**. Ele faz um join espacial, calcula uma feature por área e mede distâncias em metros.
+
+```python
+import geopandas as gpd
+from shapely.geometry import Point, box
+
+# Dois "bairros" e quatro lojas, em graus (EPSG:4326). Dados sintéticos.
+bairros = gpd.GeoDataFrame(
+    {"bairro": ["Norte", "Sul"]},
+    geometry=[box(-47.10, -22.85, -47.00, -22.80), box(-47.10, -22.95, -47.00, -22.85)],
+    crs="EPSG:4326",
+)
+lojas = gpd.GeoDataFrame(
+    {"loja": ["a", "b", "c", "d"]},
+    geometry=[Point(-47.05, -22.82), Point(-47.08, -22.83), Point(-47.04, -22.90), Point(-47.20, -22.90)],
+    crs="EPSG:4326",
+)
+
+# 1) Spatial join: em que bairro cada loja está? (a loja d fica fora de ambos)
+com_bairro = gpd.sjoin(lojas, bairros, how="left", predicate="within")
+print(com_bairro[["loja", "bairro"]])
+
+# 2) Feature por área: contagem de lojas por bairro.
+contagem = com_bairro.groupby("bairro").size().rename("n_lojas")
+
+# 3) Distâncias só em CRS projetado (metros). 5880 = SIRGAS 2000 / Brazil Polyconic.
+b_m, l_m = bairros.to_crs(5880), lojas.to_crs(5880)
+print("área do bairro Norte (km²):", round(b_m.geometry.area.iloc[0] / 1e6, 1))
+centro = b_m.geometry.union_all().centroid
+l_m["dist_centro_km"] = (l_m.geometry.distance(centro) / 1000).round(1)
+print(l_m[["loja", "dist_centro_km"]])
+
+assert contagem["Norte"] == 2 and contagem["Sul"] == 1
+assert com_bairro.loc[com_bairro.loja == "d", "bairro"].isna().all()
+assert l_m.crs.to_epsg() == 5880
+```
+
+A saída obtida:
+
+```text
+  loja bairro
+0    a  Norte
+1    b  Norte
+2    c    Sul
+3    d    NaN
+área do bairro Norte (km²): 57.2
+  loja  dist_centro_km
+0    a             6.1
+1    b             5.9
+2    c             3.0
+3    d            15.6
+```
+
+O que acontece:
+
+- **`gpd.sjoin(..., predicate="within")`** atribui cada loja ao polígono que a contém. A loja `d` está fora dos dois bairros e fica com `NaN`: um `how="left"` **mantém** a linha, e a ausência vira um dado a tratar (fora da área de cobertura).
+- **A contagem por bairro** (`n_lojas`) é uma feature por área: dois no Norte, um no Sul.
+- **Distâncias e áreas** só depois de `to_crs(5880)`. O bairro Norte tem 57,2 km², e as distâncias ao centro saem em quilômetros.
+- As **asserções** confirmam a contagem, a loja fora da área e o CRS final.
+
+---
+
+## Features geoespaciais comuns
+
+| Tipo | Exemplo | Cuidado |
+| :--- | :--- | :--- |
+| **Contagem por área** | Número de pizzarias por município | Normalize pela população ou pela área |
+| **Densidade** | Pontos por km² | Calcule a área em CRS projetado |
+| **Distância** | Até o centro, a um concorrente, à loja mais próxima | Em metros, num CRS projetado |
+| **Atributos da área** | Renda, população, vizinhança | Dado estático: uma foto, não uma série |
+| **Vizinhança** | Média do alvo nas áreas ao redor | Calcule só com o treino, para não vazar |
+
+---
+
+## Vazamento espacial
+
+Áreas vizinhas se parecem. Se um bairro cai no treino e o bairro ao lado cai no teste, o modelo "adivinha" o teste pela proximidade, e a métrica fica otimista. Por isso:
+
+- **Divida por região** (cidade, microrregião, grade de células), e não aleatoriamente por linha.
+- **Combine com o corte temporal** quando houver tempo: treino em períodos e regiões anteriores, teste em posteriores e em outras regiões.
+- **Reporte o desempenho em regiões novas**, que é a pergunta real quando o sistema for usado em um município que não viu.
+
+---
+
+## Mapas e fontes
+
+- **Geometrias:** para limites de municípios e setores censitários, o pacote `geobr` (IPEA) traz as malhas em Python.
+- **Pontos de interesse:** o OpenStreetMap (via Overpass) tem lojas e serviços, mas a cobertura varia muito entre cidades.
+- **Visualização:** `geopandas` já plota (`gdf.plot()`), e pydeck ou Folium fazem mapas interativos.
+
+<NoProjeto titulo="No projeto: Galaxies e Ambev">
+O Galaxies quase não usa território (a unidade é o canal). O Ambev usa: município como chave de join (código IBGE), contagem de pizzarias por área (OSM), perfil do Censo e um mapa de oportunidade. A validação deve separar por **região** além de por tempo, como o TAPI pede. Veja [Mapa de Oportunidade como regra territorial](/projetos/ambev/materiais/mapa-de-oportunidade-como-regra-territorial).
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas geoespaciais]
+1. **Medir distância em graus.** Reprojete para um CRS em metros.
+2. **CRS diferentes no join.** Reprojete tudo para o mesmo CRS antes de juntar.
+3. **Esquecer pontos fora das áreas.** Com `how="left"`, viram `NaN`; trate-os.
+4. **Split aleatório por linha.** Vizinhos no treino e no teste inflam a métrica.
+5. **Contagem sem normalizar.** Municípios grandes parecem "mais ofertantes" só por serem grandes.
+:::
+
+<Quiz
+  id="m3-a8"
+  perguntas={[
+    {
+      pergunta: 'Você quer a distância em quilômetros entre duas lojas dadas em latitude e longitude. O que fazer?',
+      opcoes: [
+        {texto: 'Calcular a distância euclidiana direto nas coordenadas', explicacao: 'O resultado seria em graus, sem unidade confiável.'},
+        {texto: 'Reprojetar para um CRS projetado (metros) e depois medir', correta: true, explicacao: 'Em um CRS projetado, a distância sai em metros.'},
+        {texto: 'Multiplicar por 111', explicacao: 'É uma aproximação grosseira que varia com a latitude.'},
+      ],
+    },
+    {
+      pergunta: 'Um `sjoin` com `how="left"` deixou uma loja sem bairro. O que isso significa?',
+      opcoes: [
+        {texto: 'A loja está fora de todos os polígonos, e o `NaN` precisa ser tratado', correta: true, explicacao: 'O left join mantém a linha e sinaliza a ausência.'},
+        {texto: 'A loja foi apagada', explicacao: 'O left join mantém todas as linhas da esquerda.'},
+        {texto: 'O CRS está errado', explicacao: 'Pode ser, mas o sintoma não prova isso.'},
+      ],
+    },
+    {
+      pergunta: 'Por que dividir treino e teste por região em vez de aleatoriamente?',
+      opcoes: [
+        {texto: 'Para evitar que vizinhos parecidos estejam nos dois conjuntos e inflem a métrica', correta: true, explicacao: 'É o vazamento espacial.'},
+        {texto: 'Para o teste ficar maior', explicacao: 'O tamanho não é a razão.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: sua feature por área]
+Com pontos e polígonos do seu problema, faça um `sjoin`, calcule uma contagem por área normalizada pela população e uma distância em metros a um ponto de referência. Depois divida treino e teste por região e compare a métrica com a de uma divisão aleatória.
+
+<details>
+<summary>Dica</summary>
+
+Se a divisão aleatória der uma métrica bem melhor que a por região, o seu modelo depende de vizinhança. Reporte a segunda: é a que reflete o uso em uma região nova.
+</details>
+:::
+
+---
+
+## Resumo
+
+- Todo dado geográfico tem um **CRS**: **graus** (geográfico) para trocar e juntar, **metros** (projetado) para medir.
+- **`sjoin`** liga pontos a áreas; `how="left"` mantém os pontos fora, com `NaN`.
+- Features comuns: **contagens por área, densidades, distâncias e atributos da área**.
+- **Vizinhos se parecem**: divida a validação **por região**.
+- **Normalize** contagens e **trate** pontos fora da cobertura.
+
+## Referências
+
+- [Documentação do GeoPandas](https://geopandas.org/): CRS, `sjoin`, `to_crs` e plotagem.
+- [Integrando fontes de granularidades diferentes](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/integrando-fontes-de-granularidades-diferentes): a mesma disciplina de chaves e cardinalidade.
+
+**Próxima aula:** [Anatomia de um Short e o pipeline multimodal](/aulas/ml-preditivo-e-agentes/do-video-as-features/anatomia-de-um-short): o módulo 4 transforma vídeo, áudio e fala em colunas.

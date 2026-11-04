@@ -6,7 +6,7 @@ import matter from 'gray-matter';
 
 const ROOT = path.join(process.cwd(), 'docs');
 
-export type Secao = 'tapi' | 'entregas' | 'guias';
+export type Secao = 'tapi' | 'entregas' | 'estudo' | 'guias';
 
 export type Page = {
   /** Caminho da URL sem barras nas pontas, ex.: "aulas/rag-e-rerankers/chunking". */
@@ -199,7 +199,7 @@ function load() {
           for (const x of pagesIn(it.file).filter((y) => !y.isDir)) pages.push(readPage(x.file, 'projetos', slug, {subgrupo: sub}));
         }
       }
-      const ordem: Record<Secao, number> = {tapi: 0, entregas: 1, guias: 2};
+      const ordem: Record<Secao, number> = {tapi: 0, entregas: 1, estudo: 2, guias: 3};
       pages.sort((a, b) => ordem[a.secao ?? 'guias'] - ordem[b.secao ?? 'guias'] || a.position - b.position);
       return {
         slug,
@@ -230,6 +230,7 @@ export const getPage = (slug: string) => load().pages.find((p) => p.slug === slu
 export const SECOES: {id: Secao; label: string; descricao: string}[] = [
   {id: 'tapi', label: 'TAPI', descricao: 'O termo de abertura: problema, objetivo, escopo e critérios.'},
   {id: 'entregas', label: 'Entregas', descricao: 'Cronograma, templates e o que cada entrega precisa ter.'},
+  {id: 'estudo', label: 'Material de estudo', descricao: 'Aulas e conteúdo escrito específico do negócio deste projeto.'},
   {id: 'guias', label: 'Guias', descricao: 'Materiais de apoio específicos deste projeto.'},
 ];
 

@@ -1,0 +1,186 @@
+---
+sidebar_position: 8
+sidebar_label: 'Desbalanceamento de classes'
+title: 'Desbalanceamento de classes'
+description: 'O que fazer quando o positivo é raro: por que a acurácia engana, o que class_weight e reamostragem realmente mudam, como medir com PR-AUC e por que pesos distorcem as probabilidades.'
+tags: [ml-preditivo, avaliacao, desbalanceamento]
+---
+
+# Desbalanceamento de Classes: Raro Não Quer Dizer Quebrado
+
+<LessonMeta
+  tempo="35 min"
+  semana={2}
+  etapa={['avaliacao', 'modelo']}
+  objetivos={[
+    'Explicar por que a acurácia engana quando o positivo é raro',
+    'Descrever o que class_weight muda (e o que não muda) no ranking do modelo',
+    'Reconhecer que pesos e reamostragem distorcem as probabilidades',
+    'Escolher entre pesos, limiar e reamostragem com critério',
+  ]}
+  prerequisitos={[
+    {label: 'Métricas de classificação e custo dos erros', to: '/aulas/ml-preditivo-e-agentes/avaliacao-honesta/metricas-de-classificacao-e-custo-dos-erros'},
+  ]}
+/>
+
+Fraude, cancelamento, falha de equipamento, uma ocasião de consumo específica: muitos alvos de interesse são raros. Com 3% de positivos, o primeiro instinto é "meus dados estão desbalanceados, preciso balancear". Esse instinto costuma levar a mudanças que **não melhoram o modelo** e **estragam as probabilidades**. Esta aula mostra o que de fato muda.
+
+:::info[Ideia central]
+Desbalanceamento é um problema de **como medir** e de **onde cortar o score**, antes de ser um problema de treino. Muitas vezes o modelo já ordena bem; o que precisa mudar é a métrica e o limiar.
+:::
+
+---
+
+## A armadilha da acurácia
+
+Se 96,8% dos exemplos são negativos, um "modelo" que **sempre responde não** tem 96,8% de acurácia, e nenhuma utilidade. A acurácia premia a classe majoritária. Com classe rara, use **PR-AUC**, **recall em uma precisão mínima** ou **custo esperado** (veja [Métricas de classificação](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/metricas-de-classificacao-e-custo-dos-erros)).
+
+---
+
+## O que `class_weight` realmente faz
+
+O trecho abaixo compara um modelo sem tratamento e outro com `class_weight="balanced"`, em dados **sintéticos** com cerca de 3% de positivos.
+
+```python
+import numpy as np
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, average_precision_score, recall_score, precision_score
+from sklearn.model_selection import train_test_split
+
+rng = np.random.default_rng(2)
+n = 40_000
+X = rng.normal(size=(n, 5))
+p = 1 / (1 + np.exp(-(-5.0 + 1.6 * X[:, 0] + 1.2 * X[:, 1])))      # ~1% de positivos (sintético)
+y = (rng.random(n) < p).astype(int)
+X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, shuffle=False)
+print("positivos no teste:", round(y_te.mean(), 4))
+
+# 1) O "modelo" que nunca prevê a classe rara.
+print("acurácia de prever sempre 0:", round(accuracy_score(y_te, np.zeros_like(y_te)), 4))
+
+def avalia(nome, modelo):
+    s = modelo.fit(X_tr, y_tr).predict_proba(X_te)[:, 1]
+    pr = average_precision_score(y_te, s)
+    # limiar escolhido para recall de 60% (ilustrativo), medindo a precisão que sobra
+    alvo = np.quantile(s[y_te == 1], 0.4)
+    pred = s >= alvo
+    print(f"{nome:28s} PR-AUC {pr:.3f} | em recall≈{recall_score(y_te, pred):.2f}: precisão {precision_score(y_te, pred):.3f}")
+    return s
+
+s_sem = avalia("sem tratamento", LogisticRegression(max_iter=1000))
+s_peso = avalia("class_weight='balanced'", LogisticRegression(max_iter=1000, class_weight="balanced"))
+print("PR-AUC igual?", abs(average_precision_score(y_te, s_sem) - average_precision_score(y_te, s_peso)) < 0.02)
+print("prob. média prevista (sem / com peso):", round(s_sem.mean(), 3), "/", round(s_peso.mean(), 3))
+assert s_peso.mean() > 5 * s_sem.mean()   # o peso distorce a probabilidade
+```
+
+A saída obtida com a semente do exemplo:
+
+```text
+positivos no teste: 0.0319
+acurácia de prever sempre 0: 0.9681
+sem tratamento               PR-AUC 0.354 | em recall≈0.60: precisão 0.227
+class_weight='balanced'      PR-AUC 0.354 | em recall≈0.60: precisão 0.226
+PR-AUC igual? True
+prob. média prevista (sem / com peso): 0.031 / 0.265
+```
+
+Três conclusões:
+
+1. **A acurácia de 96,8% é um modelo inútil.** É o piso que qualquer modelo precisa superar de verdade.
+2. **O ranking não melhorou.** A PR-AUC é idêntica (0,354), e a precisão num mesmo nível de recall também. O peso não ensinou nada novo ao modelo.
+3. **A probabilidade piorou.** A média prevista com peso é 0,265, enquanto a prevalência real é 0,032: o modelo agora "acha" que há 27% de positivos. O score deixou de ser uma probabilidade. Se alguém ler "0,40" como "40% de chance", vai errar por uma ordem de grandeza.
+
+Isso não torna `class_weight` inútil: em modelos mais flexíveis ou com poucos positivos, ele pode ajudar o ajuste. Mas o ganho precisa ser **medido** (PR-AUC e recall em precisão mínima), e o score resultante **precisa ser recalibrado** se for lido como probabilidade (veja [Calibração de probabilidade](/aulas/ml-preditivo-e-agentes/incerteza-e-explicabilidade/calibracao-de-probabilidade)).
+
+---
+
+## As opções, uma a uma
+
+| Opção | O que faz | Cuidado |
+| :--- | :--- | :--- |
+| **Mudar a métrica** | Mede PR-AUC, recall e custo em vez de acurácia | Custo zero, e quase sempre o primeiro passo |
+| **Mudar o limiar** | Corta o score onde o custo é mínimo | Escolha na validação |
+| **`class_weight` / pesos** | Penaliza mais o erro na classe rara | Distorce a probabilidade; recalibre |
+| **Subamostragem** | Descarta negativos | Perde informação; só no treino |
+| **Sobreamostragem** (duplicar ou sintetizar positivos) | Aumenta os positivos | Risco de superajuste e de vazamento se duplicar antes de dividir |
+| **Mais dados da classe rara** | Coleta ou rotula mais positivos | Costuma ser o que mais ajuda, e o mais caro |
+
+Regras de ouro:
+
+- **Reamostre só o treino.** O teste e a validação mantêm a prevalência real, senão as métricas deixam de refletir o uso.
+- **Duplique depois de dividir.** Duplicar positivos antes da divisão coloca cópias do mesmo exemplo no treino e no teste: é vazamento.
+- **Divida em ordem temporal** quando houver tempo, mesmo com classes raras. Estratificar ajuda a ter positivos em todos os conjuntos, mas não substitui o corte temporal.
+
+<NoProjeto titulo="No projeto: Galaxies e Ambev">
+O Galaxies tem alvo contínuo e não sofre disso, mas a faixa "viral" é rara e aparece em F1 por faixas. No Ambev, a ocasião é uma fração das observações, e o modelo vai produzir um Occasion Score: se ele for apresentado como probabilidade, pesos de classe exigem calibração antes de qualquer leitura. Veja [Unidade de análise e formulação do score](/projetos/ambev/materiais/unidade-de-analise-e-formulacao-do-score).
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de desbalanceamento]
+1. **Reportar acurácia.** O modelo "sempre não" vence.
+2. **Reamostrar antes de dividir.** Cópias do mesmo exemplo vazam entre treino e teste.
+3. **Reamostrar o teste.** A métrica deixa de refletir a prevalência real.
+4. **Usar pesos e ler o score como probabilidade.** A probabilidade fica inflada.
+5. **Assumir que balancear sempre ajuda.** Meça com PR-AUC antes e depois.
+:::
+
+<Quiz
+  id="m2-a8"
+  perguntas={[
+    {
+      pergunta: 'Com `class_weight="balanced"`, a PR-AUC não mudou, mas a probabilidade média prevista subiu de 3% para 27%. O que isso indica?',
+      opcoes: [
+        {texto: 'O modelo melhorou muito', explicacao: 'O ranking (PR-AUC) não mudou.'},
+        {texto: 'O ranking ficou igual e as probabilidades foram distorcidas pelo peso', correta: true, explicacao: 'O peso muda a escala do score, sem acrescentar informação.'},
+        {texto: 'Os dados estão errados', explicacao: 'É o efeito esperado do peso.'},
+      ],
+    },
+    {
+      pergunta: 'Você duplicou os positivos e depois dividiu em treino e teste. Qual o problema?',
+      opcoes: [
+        {texto: 'Nenhum, é uma técnica padrão', explicacao: 'Dividir depois de duplicar coloca cópias nos dois conjuntos.'},
+        {texto: 'As cópias do mesmo exemplo aparecem no treino e no teste, o que é vazamento', correta: true, explicacao: 'Divida primeiro e reamostre só o treino.'},
+      ],
+    },
+    {
+      pergunta: 'Qual é o primeiro passo recomendado com uma classe rara?',
+      opcoes: [
+        {texto: 'Trocar a métrica por PR-AUC e recall, e escolher o limiar pelo custo', correta: true, explicacao: 'Custa pouco e costuma resolver boa parte do problema.'},
+        {texto: 'Descartar 90% dos negativos', explicacao: 'Perde informação e pode não melhorar nada.'},
+        {texto: 'Treinar um modelo maior', explicacao: 'Não resolve a medição.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: peso, limiar ou nada]
+Pegue um alvo raro seu. Treine três versões: sem tratamento, com `class_weight="balanced"` e sem tratamento mas com limiar escolhido pelo custo. Compare PR-AUC, recall em precisão mínima e a média da probabilidade prevista.
+
+<details>
+<summary>Dica</summary>
+
+Se a PR-AUC das versões é parecida, o tratamento só mudou a escala do score. Fique com a versão mais simples e ajuste o limiar.
+</details>
+:::
+
+---
+
+## Resumo
+
+- **Acurácia engana** com classe rara: use PR-AUC, recall e custo.
+- **`class_weight` não melhora o ranking** por si só, e **distorce as probabilidades**.
+- O **limiar** escolhido pelo custo resolve muito do problema.
+- **Reamostre só o treino**, e duplique **depois** de dividir.
+- Se o score for lido como probabilidade, **recalibre**.
+
+## Referências
+
+- Saito e Rehmsmeier. [*The Precision-Recall Plot Is More Informative than the ROC Plot When Evaluating Binary Classifiers on Imbalanced Datasets*](https://doi.org/10.1371/journal.pone.0118432). PLOS ONE, 2015.
+- [Métricas de classificação e custo dos erros](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/metricas-de-classificacao-e-custo-dos-erros): a aula anterior.
+
+**Próxima aula:** [Árvores de decisão por dentro](/aulas/ml-preditivo-e-agentes/gradient-boosting/arvores-de-decisao): o módulo 3 abre a caixa-preta do gradient boosting, começando pela árvore que ele soma centenas de vezes.

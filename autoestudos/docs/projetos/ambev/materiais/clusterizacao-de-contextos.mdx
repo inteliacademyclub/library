@@ -1,0 +1,185 @@
+---
+secao: estudo
+sidebar_position: 12
+sidebar_label: 'Clusterização de contextos'
+title: 'Clusterização de contextos'
+description: 'Como agrupar contextos parecidos da ocasião Pizza + Guaraná para descrever perfis, escolher o número de grupos sem se enganar com métricas e ler os perfis sem tratá-los como previsão.'
+---
+
+# Clusterização de Contextos: Descrever Perfis de Ocasião
+
+<LessonMeta
+  tempo="30 min"
+  opcional
+  objetivos={[
+    'Explicar para que serve a clusterização no case e para que ela não serve',
+    'Padronizar variáveis e rodar KMeans com diferentes números de grupos',
+    'Ler o silhouette sem tratá-lo como veredito',
+    'Transformar os perfis dos grupos em descrições de ocasião',
+  ]}
+  prerequisitos={[
+    {label: 'EDA da ocasião e features de contexto', to: '/projetos/ambev/materiais/eda-da-ocasiao-e-features-de-contexto'},
+  ]}
+/>
+
+A clusterização é uma extensão opcional do TAPI: agrupar contextos parecidos para **descrever perfis de ocasião**. É uma técnica não supervisionada, que não usa o target. Ela responde "que tipos de contexto existem?", e não "qual contexto tem maior propensão?". Essa segunda pergunta é do modelo.
+
+:::info[Ideia central]
+Clusters **descrevem**, não **preveem**. Um perfil como "noite de fim de semana, chuvosa, com delivery forte" é uma descrição útil para o negócio e para o Decision Engine, mas não é uma garantia de ocasião.
+:::
+
+---
+
+## Para que serve no case
+
+| Uso | Exemplo |
+| :--- | :--- |
+| **Descrever** | Resumir milhares de contextos em poucos perfis com nomes compreensíveis |
+| **Explorar** | Descobrir um perfil que a EDA não mostrou |
+| **Comunicar** | Dar ao vídeo e ao README exemplos concretos de tipos de ocasião |
+| **Apoiar regras** | Sugerir condições para o Decision Engine, que continuam sendo escritas e testadas à mão |
+
+Ela **não** serve para trocar o modelo, escolher campanha ou provar causalidade.
+
+---
+
+## Um exemplo
+
+Os dados são **sintéticos**: dois tipos de contexto planejados (noites de fim de semana chuvosas com delivery, e o resto). Em dados reais, não se sabe quantos tipos existem.
+
+```python
+import numpy as np
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import StandardScaler
+
+rng = np.random.default_rng(3)
+a = pd.DataFrame({"fds": 1, "noite": 1, "chuva": rng.random(300) < 0.6, "delivery": rng.random(300) < 0.7})
+b = pd.DataFrame({"fds": 0, "noite": rng.integers(0, 2, 300), "chuva": rng.random(300) < 0.2, "delivery": rng.random(300) < 0.2})
+ctx = pd.concat([a, b], ignore_index=True).astype(float)
+ctx["score"] = np.r_[rng.normal(0.7, 0.08, 300), rng.normal(0.25, 0.08, 300)]
+
+X = StandardScaler().fit_transform(ctx)
+resultado = {}
+for k in range(2, 6):
+    km = KMeans(n_clusters=k, n_init=10, random_state=0).fit(X)
+    resultado[k] = round(silhouette_score(X, km.labels_), 3)
+print(resultado)
+
+k = max(resultado, key=resultado.get)
+ctx["cluster"] = KMeans(n_clusters=k, n_init=10, random_state=0).fit_predict(X)
+perfil = ctx.groupby("cluster").mean().round(2)
+print(k); print(perfil)
+assert k in resultado
+```
+
+A saída obtida com a semente do exemplo:
+
+```text
+{2: 0.503, 3: 0.512, 4: 0.547, 5: 0.609}
+5
+          fds  noite  chuva  delivery  score
+cluster
+0        0.00    0.0   0.21      0.15   0.25
+1        0.99    1.0   1.00      1.00   0.70
+2        0.00    1.0   0.16      0.21   0.25
+3        1.00    1.0   0.00      1.00   0.69
+4        1.00    1.0   0.48      0.00   0.71
+```
+
+Duas lições aparecem:
+
+1. **O silhouette cresceu com k e escolheu 5**, embora os dados tenham sido gerados com **dois** tipos de contexto. Variáveis binárias criam subgrupos fáceis de separar, e a métrica premia isso. O número "ótimo" não é uma verdade sobre o mundo.
+2. **Os perfis mostram o que importa.** Os grupos 1, 3 e 4 são todos de fim de semana à noite com score alto (cerca de 0,70) e se distinguem por chuva e delivery. Os grupos 0 e 2 são o "resto", com score baixo (cerca de 0,25), separados por período.
+
+Por isso a escolha final de k é uma decisão de **interpretação**: quantos perfis você consegue nomear e usar? Compare a tabela de perfis de vários k.
+
+<NoProjeto titulo="No projeto: dando nomes aos perfis">
+Com a tabela de perfis, dá para escrever descrições como: "Noite de fim de semana com chuva e delivery forte" (grupo 1), "Noite de fim de semana sem chuva, com delivery" (grupo 3) e "Dias úteis e manhãs, baixa propensão" (grupos 0 e 2). Cada nome deve vir dos números do perfil, e não de uma imaginação sobre o grupo. Depois, verifique se o target real difere entre os grupos: se não difere, o agrupamento é só uma partição, sem relação com a ocasião.
+</NoProjeto>
+
+---
+
+## Cuidados
+
+- **Padronize** as variáveis antes do KMeans, senão a escala decide o agrupamento.
+- **Use o score como variável com cuidado.** Incluir a saída do modelo mistura descrição com predição. Decida isso conscientemente e documente.
+- **Não use o target para formar os grupos** se quer usá-lo depois para validar a utilidade dos perfis.
+- **Estabilidade.** Rode com sementes diferentes e veja se os perfis se repetem.
+- **Variáveis binárias** funcionam, mas o KMeans assume distâncias euclidianas. Para variáveis categóricas, considere outras técnicas.
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de clusterização]
+1. **Escolher k só pelo silhouette.** A métrica não sabe o que é útil para o negócio.
+2. **Tratar clusters como classes reais.** São partições, e podem mudar com a semente.
+3. **Nomear grupos sem olhar os números.** Cada nome precisa vir do perfil.
+4. **Esquecer de padronizar.** Variáveis em escalas diferentes dominam o resultado.
+5. **Usar clusters como previsão.** Eles descrevem contextos, e não estimam a ocasião.
+:::
+
+<Quiz
+  id="ambev-a14"
+  perguntas={[
+    {
+      pergunta: 'Qual afirmação sobre clusters é correta?',
+      opcoes: [
+        {texto: 'Eles preveem se a ocasião vai acontecer', explicacao: 'A previsão é do modelo supervisionado.'},
+        {texto: 'Eles agrupam contextos parecidos e ajudam a descrever perfis', correta: true, explicacao: 'É a definição de uso do TAPI.'},
+        {texto: 'Eles provam que uma campanha funciona', explicacao: 'Nenhuma técnica descritiva prova causalidade.'},
+      ],
+    },
+    {
+      pergunta: 'O silhouette é máximo com k = 5, mas você só consegue nomear 3 perfis úteis. O que fazer?',
+      opcoes: [
+        {texto: 'Usar k = 5 porque a métrica manda', explicacao: 'A métrica não conhece o seu objetivo.'},
+        {texto: 'Comparar os perfis de k = 3, 4 e 5 e escolher o que você consegue interpretar e justificar', correta: true, explicacao: 'A escolha de k é de interpretação.'},
+        {texto: 'Desistir da clusterização', explicacao: 'Não é necessário: basta escolher k com critério.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: nomeie os perfis]
+Rode o KMeans nos seus contextos para k = 3, 4 e 5. Para cada k, imprima a tabela de perfis e escreva um nome para cada grupo. Qual k produz nomes que fazem sentido para uma pessoa de negócio?
+
+<details>
+<summary>Dica</summary>
+
+Se dois grupos recebem o mesmo nome, k está alto demais. Se um grupo mistura coisas que você separaria, k está baixo.
+</details>
+:::
+
+---
+
+## Resumo
+
+- Clusterização **descreve** perfis de ocasião e **não prevê**.
+- **Padronize** antes de agrupar e rode com sementes diferentes.
+- **O silhouette não decide k**: o critério final é interpretar e justificar.
+- Cada perfil recebe um **nome que vem dos números**.
+- Verifique depois se o **target real difere** entre os grupos.
+
+## Referências
+
+- [Termo de abertura do case Ambev](/projetos/ambev/tapi): seção "Escopo" (extensões opcionais).
+- [EDA da ocasião e features de contexto](/projetos/ambev/materiais/eda-da-ocasiao-e-features-de-contexto): de onde saem as variáveis.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [scikit-learn: Clustering](https://scikit-learn.org/stable/modules/clustering.html) *(em inglês)*: comparação dos algoritmos e de quando cada um funciona.
+- [scikit-learn: silhouette analysis com KMeans](https://scikit-learn.org/stable/auto_examples/cluster/plot_kmeans_silhouette_analysis.html) *(em inglês)*: como ler o silhouette por grupo, e não só a média.
+
+**Vídeos**
+
+- [StatQuest: K-means clustering](https://www.youtube.com/watch?v=4b5d3muPQmA) *(em inglês)*: o algoritmo passo a passo e o método do cotovelo.
+- [Clustering with DBSCAN, Clearly Explained (StatQuest)](https://www.youtube.com/watch?v=RDZUdRSDOok) *(em inglês)*: uma alternativa quando os grupos não são esféricos.
+
+**Próxima aula:** [Trend Radar](/projetos/ambev/materiais/trend-radar) (opcional).

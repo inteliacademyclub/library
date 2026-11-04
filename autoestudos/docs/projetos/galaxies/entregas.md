@@ -10,6 +10,8 @@ description: 'Os dez projetos entregues no case Galaxies, com repositório e ví
 
 Entregas do **Case Galaxies**, encerrado em 23/10/2026 e feito em parceria entre o **Inteli Academy** e a **Galaxies**. Dez participantes entregaram o repositório do agente preditivo e um vídeo de 5 a 7 minutos explicando o trabalho.
 
+- **Repositório central**: [inteliacademyclub/entregas-case-galaxies](https://github.com/inteliacademyclub/entregas-case-galaxies)
+
 ## Participantes
 
 | Aluno | Repositório | Vídeo |

@@ -1,0 +1,200 @@
+---
+sidebar_position: 7
+sidebar_label: 'Regressão logística'
+title: 'Regressão logística'
+description: 'O primeiro modelo sério de classificação: a função logística, coeficientes e odds ratios interpretáveis, regularização L2, padronização e pipelines com scikit-learn.'
+tags: [ml-preditivo, modelo, classificacao, regressao-logistica]
+---
+
+# Regressão Logística: o Primeiro Modelo Sério
+
+<LessonMeta
+  tempo="40 min"
+  semana={2}
+  etapa="modelo"
+  objetivos={[
+    'Escrever a regressão logística e interpretar coeficientes como odds ratios',
+    'Explicar por que padronizar as variáveis antes de ajustar',
+    'Ver o efeito da regularização (C) no tamanho dos coeficientes',
+    'Montar um pipeline com scikit-learn e comparar com gradient boosting',
+  ]}
+  prerequisitos={[
+    {label: 'Métricas de classificação e custo dos erros', to: '/aulas/ml-preditivo-e-agentes/avaliacao-honesta/metricas-de-classificacao-e-custo-dos-erros'},
+  ]}
+/>
+
+:::tip[Ordem de leitura]
+Esta aula entra no módulo 3 como a número 7 para não renumerar as demais, mas funciona melhor **antes** de [Árvores de decisão por dentro](/aulas/ml-preditivo-e-agentes/gradient-boosting/arvores-de-decisao): é o modelo mais simples que vale a pena como baseline e como candidato.
+:::
+
+Antes de recorrer a gradient boosting, vale perguntar se um modelo mais simples já resolve. A **regressão logística** é rápida, treina com poucos dados, dá probabilidades razoáveis e tem uma vantagem rara: cada coeficiente se **lê**. Mesmo quando perde para o boosting em desempenho, ela é um ótimo baseline e uma forma de entender o que os dados dizem.
+
+:::info[Ideia central]
+A regressão logística modela o **log da razão de chances** (log-odds) como uma combinação linear das variáveis, e transforma o resultado em probabilidade com a função logística. Cada coeficiente diz **quanto a chance muda** quando a variável sobe uma unidade, mantendo as outras fixas.
+:::
+
+---
+
+## O modelo
+
+$$
+\log \frac{P(y=1 \mid x)}{1 - P(y=1 \mid x)} = \beta_0 + \beta_1 x_1 + \dots + \beta_k x_k
+\qquad
+P(y=1 \mid x) = \frac{1}{1 + e^{-(\beta_0 + \beta \cdot x)}}
+$$
+
+A saída fica sempre entre 0 e 1, e o **limite de decisão** é linear: o modelo separa as classes por um hiperplano. Se a relação verdadeira tem interações ou curvas, é preciso criá-las como features (por exemplo, produtos entre variáveis); o boosting faz isso sozinho.
+
+**Odds ratio:** $$e^{\beta_j}$$ é o fator pelo qual as chances (odds) são multiplicadas quando $$x_j$$ aumenta em uma unidade. Um odds ratio de 1,7 significa chances 70% maiores; de 0,5, chances pela metade.
+
+---
+
+## Pipeline, coeficientes e regularização
+
+O trecho abaixo prevê **cancelamento** de clientes com dados **sintéticos**. Ele usa um `Pipeline` com padronização e regressão logística, lê os coeficientes como odds ratios e mostra o efeito de `C`.
+
+```python
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+
+rng = np.random.default_rng(4)
+n = 8_000
+X = pd.DataFrame({
+    "tempo_de_casa_meses": rng.integers(1, 60, n),
+    "chamados_suporte": rng.poisson(2, n),
+    "uso_semanal_horas": rng.gamma(2.0, 2.0, n),
+})
+logit = -1.0 - 0.04 * X.tempo_de_casa_meses + 0.35 * X.chamados_suporte - 0.25 * X.uso_semanal_horas
+y = (rng.random(n) < 1 / (1 + np.exp(-logit))).astype(int)       # cancelou? (sintético)
+X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, shuffle=False)
+
+modelo = make_pipeline(StandardScaler(), LogisticRegression(C=1.0, max_iter=1000))
+modelo.fit(X_tr, y_tr)
+print("ROC-AUC:", round(roc_auc_score(y_te, modelo.predict_proba(X_te)[:, 1]), 3))
+
+coef = pd.Series(modelo[-1].coef_[0], index=X.columns)
+print(pd.DataFrame({"coef": coef.round(2), "odds_ratio": np.exp(coef).round(2)}))   # por +1 desvio-padrão
+
+# Efeito da regularização: C menor encolhe os coeficientes.
+for C in (0.001, 0.01, 1.0):
+    m = make_pipeline(StandardScaler(), LogisticRegression(C=C, max_iter=1000)).fit(X_tr, y_tr)
+    print(C, np.abs(m[-1].coef_).sum().round(3))
+assert coef["chamados_suporte"] > 0 > coef["uso_semanal_horas"]
+```
+
+A saída obtida com a semente do exemplo:
+
+```text
+ROC-AUC: 0.768
+                     coef  odds_ratio
+tempo_de_casa_meses -0.74        0.48
+chamados_suporte     0.53        1.69
+uso_semanal_horas   -0.71        0.49
+0.001 0.568
+0.01 1.522
+1.0 1.979
+```
+
+Como ler:
+
+- **Coeficientes por desvio-padrão.** Como as variáveis foram padronizadas, cada coeficiente é o efeito de subir **um desvio-padrão**. Isso torna os coeficientes comparáveis entre variáveis de escalas diferentes.
+- **Odds ratios.** Cada desvio-padrão a mais em `chamados_suporte` multiplica as chances de cancelamento por 1,69; em `tempo_de_casa_meses` e `uso_semanal_horas`, quase pela metade (0,48 e 0,49). Os sinais batem com a história dos dados.
+- **Regularização.** A soma dos coeficientes absolutos cresce com `C`: 0,57 com `C=0,001`, 1,52 com `C=0,01` e 1,98 com `C=1`. **`C` é o inverso da força da regularização**: valores pequenos encolhem os coeficientes em direção a zero.
+
+---
+
+## Por que padronizar e regularizar
+
+- **Padronizar** coloca as variáveis na mesma escala. Sem isso, a regularização penaliza mais as variáveis de escala pequena, e os coeficientes não são comparáveis. Coloque o `StandardScaler` **dentro** do pipeline: assim ele é ajustado só no treino em cada divisão, sem vazamento.
+- **Regularização L2** (o padrão do scikit-learn) penaliza coeficientes grandes e reduz o superajuste, principalmente com poucos dados ou variáveis correlacionadas. **L1** zera alguns coeficientes e funciona como seleção de variáveis.
+- **Escolha `C` na validação**, não no teste, e prefira uma validação com o mesmo corte temporal do projeto.
+
+---
+
+## Quando usar, quando não usar
+
+| A regressão logística é boa para | Perde para o boosting quando |
+| :--- | :--- |
+| Baseline forte e rápido | Há interações e não linearidades fortes |
+| Poucos dados | Há muitas variáveis categóricas de alta cardinalidade |
+| Interpretação direta dos efeitos | O desempenho máximo é o objetivo |
+| Probabilidades razoavelmente calibradas | As relações mudam por faixa de valor |
+
+Uma boa prática: **comece pela regressão logística** e só migre para o boosting se ele ganhar de forma clara e consistente. Um ganho pequeno raramente compensa a perda de interpretação.
+
+<NoProjeto titulo="No projeto: Galaxies e Ambev">
+No Galaxies, o alvo é regressão, e o análogo é a regressão linear regularizada (Ridge) como baseline. No Ambev, o TAPI cita regressão logística como o primeiro modelo candidato: com ela, cada fator do Occasion Score tem um coeficiente legível, o que ajuda a justificar o `top_factors` e as regras do Decision Engine. Compare-a com o boosting em validação temporal e reporte os dois.
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas da regressão logística]
+1. **Não padronizar.** Coeficientes incomparáveis e regularização desigual.
+2. **Ajustar o `StandardScaler` fora do pipeline.** Vaza informação do teste.
+3. **Interpretar coeficiente como causa.** Ele descreve associação, controlando as outras variáveis do modelo.
+4. **Variáveis muito correlacionadas.** Os coeficientes ficam instáveis e podem trocar de sinal.
+5. **Ler o score como probabilidade depois de usar `class_weight`.** Verifique a calibração.
+:::
+
+<Quiz
+  id="m3-a7"
+  perguntas={[
+    {
+      pergunta: 'Um coeficiente padronizado vale 0,53. Qual é o odds ratio e como interpretá-lo?',
+      opcoes: [
+        {texto: 'Cerca de 1,7: cada desvio-padrão a mais multiplica as chances por aproximadamente 1,7', correta: true, explicacao: 'O odds ratio é e elevado ao coeficiente.'},
+        {texto: '0,53: a probabilidade sobe 53%', explicacao: 'O coeficiente está em log-odds, e não em probabilidade.'},
+        {texto: '0,53: a chance cai pela metade', explicacao: 'Um coeficiente positivo aumenta as chances.'},
+      ],
+    },
+    {
+      pergunta: 'Aumentar `C` de 0,01 para 1 faz o quê?',
+      opcoes: [
+        {texto: 'Regulariza menos, e os coeficientes crescem', correta: true, explicacao: '`C` é o inverso da força da regularização.'},
+        {texto: 'Regulariza mais', explicacao: 'É o contrário: `C` pequeno regulariza mais.'},
+        {texto: 'Não tem efeito', explicacao: 'O efeito é visível nos coeficientes.'},
+      ],
+    },
+    {
+      pergunta: 'Por que colocar o `StandardScaler` dentro do pipeline?',
+      opcoes: [
+        {texto: 'Para ele ser ajustado só com o treino em cada divisão, sem vazamento', correta: true, explicacao: 'Fora do pipeline, a média e o desvio incluiriam o teste.'},
+        {texto: 'Para o código ficar mais curto', explicacao: 'O motivo é a correção, não o tamanho.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: baseline interpretável]
+Ajuste uma regressão logística ao seu problema de classificação com pipeline e padronização. Escreva os três maiores odds ratios em português ("a cada desvio-padrão a mais de X, as chances ficam Y vezes maiores"). Compare o ROC-AUC e a PR-AUC com os do boosting.
+
+<details>
+<summary>Dica</summary>
+
+Se o boosting ganha por pouco, vale testar interações na regressão logística (produtos de duas variáveis) antes de aceitar a perda de interpretação.
+</details>
+:::
+
+---
+
+## Resumo
+
+- A regressão logística modela **log-odds** como combinação linear e devolve **probabilidades**.
+- Coeficientes se leem como **odds ratios**: $$e^{\beta}$$.
+- **Padronize dentro do pipeline** e escolha **`C`** na validação.
+- **L2** encolhe coeficientes; **L1** zera alguns.
+- É um **baseline forte**: só troque por boosting se ele ganhar de forma clara.
+
+## Referências
+
+- [scikit-learn: regressão logística](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression). Penalidades, solvers e o parâmetro `C`.
+- [Baselines](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/baselines): onde esse modelo se encaixa como referência.
+
+**Próxima aula:** [Dados geoespaciais para ML](/aulas/ml-preditivo-e-agentes/gradient-boosting/dados-geoespaciais-para-ml): features por área e joins espaciais.

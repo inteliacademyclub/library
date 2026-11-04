@@ -1,0 +1,268 @@
+---
+secao: estudo
+sidebar_position: 9
+sidebar_label: 'Decision Engine testável'
+title: 'Decision Engine: tabela de regras testável'
+description: 'Como implementar o Decision Engine do case Ambev como uma tabela de regras ordenadas, com justificativa em cada decisão e testes de pytest, e como tratar a regra de awareness que depende de um dado que ninguém mede.'
+---
+
+# Decision Engine: uma Tabela de Regras que Dá para Testar
+
+<LessonMeta
+  tempo="40 min"
+  objetivos={[
+    'Implementar regras como dados (condição, categoria, justificativa) e não como if espalhados',
+    'Definir a ordem de prioridade das regras como parte da especificação',
+    'Escrever testes de pytest que cobrem cada regra, os limites e a ausência de dado',
+    'Tratar a regra de awareness quando a "associação atual à marca" não está disponível',
+  ]}
+  prerequisitos={[
+    {label: 'Score não é decisão', to: '/projetos/ambev/materiais/occasion-intelligence-score-nao-e-decisao'},
+    {label: 'Baseline "sexta à noite" e Occasion Score', to: '/projetos/ambev/materiais/baseline-sexta-a-noite-e-occasion-score'},
+  ]}
+/>
+
+O Decision Engine é a parte do sistema que o negócio vai ler. O TAPI pede que as regras fiquem **documentadas** e que cada recomendação tenha **justificativa**. Isso é mais fácil quando as regras são uma tabela em código, e mais fácil ainda quando cada linha da tabela tem um teste.
+
+:::info[Ideia central]
+Uma regra é um dado: `(id, condição, categoria, justificativa)`. O motor só percorre a lista na ordem e devolve a primeira que casa. A ordem, os limiares e as justificativas são a especificação.
+:::
+
+---
+
+## A tabela de regras
+
+O TAPI dá três exemplos. Eles viram três regras, mais uma saída padrão para quando nenhuma casa:
+
+| Id | Condição | Categoria | Justificativa |
+| :-- | :--- | :--- | :--- |
+| R1 | Score alto e forte presença de delivery | `delivery` | Score alto e forte presença de delivery |
+| R2 | Score alto e consumo doméstico recorrente | `consumo_em_casa` | Score alto e consumo doméstico recorrente |
+| R3 | Score relevante e baixa associação atual à marca | `awareness` | Score relevante e segmento com baixa associação atual à marca |
+| R0 | Nenhuma das anteriores | `sem_ativacao` | Nenhuma regra de ativação se aplica |
+
+Os limiares de "alto" e "relevante" são **parâmetros**, e os valores do exemplo (0,60 e 0,40) são ilustrativos. Defina-os com o modelo real e com o custo dos erros, e documente a decisão.
+
+---
+
+## A implementação
+
+```python
+from dataclasses import dataclass
+from typing import Callable
+
+LIMIAR_ALTO = 0.60        # valores ilustrativos: calibre com o seu modelo
+LIMIAR_RELEVANTE = 0.40   # e com o custo dos erros (falso positivo x falso negativo)
+
+
+@dataclass(frozen=True)
+class Contexto:
+    score: float
+    delivery_forte: bool
+    consumo_domestico_recorrente: bool
+    associacao_marca_baixa: bool | None  # None = sem dado confiável para o segmento
+
+
+@dataclass(frozen=True)
+class Regra:
+    id: str
+    categoria: str
+    condicao: Callable[[Contexto], bool]
+    justificativa: str
+
+
+@dataclass(frozen=True)
+class Decisao:
+    regra_id: str
+    categoria: str
+    justificativa: str
+
+
+REGRAS = [  # a primeira regra que casa vence; a ordem é parte da especificação
+    Regra("R1", "delivery",
+          lambda c: c.score >= LIMIAR_ALTO and c.delivery_forte,
+          "Score alto e forte presença de delivery."),
+    Regra("R2", "consumo_em_casa",
+          lambda c: c.score >= LIMIAR_ALTO and c.consumo_domestico_recorrente,
+          "Score alto e consumo doméstico recorrente."),
+    Regra("R3", "awareness",
+          lambda c: c.score >= LIMIAR_RELEVANTE and c.associacao_marca_baixa is True,
+          "Score relevante e segmento com baixa associação atual à marca."),
+]
+
+SEM_ATIVACAO = Decisao("R0", "sem_ativacao", "Nenhuma regra de ativação se aplica a este contexto.")
+
+
+def decide(ctx: Contexto) -> Decisao:
+    for r in REGRAS:
+        if r.condicao(ctx):
+            return Decisao(r.id, r.categoria, r.justificativa)
+    return SEM_ATIVACAO
+```
+
+Três decisões de projeto:
+
+- **A ordem é especificação.** R1 vem antes de R2: um contexto com delivery forte **e** consumo doméstico recebe a categoria de delivery. Se a prioridade importa para o negócio, ela deve estar escrita aqui e testada.
+- **A justificativa viaja com a decisão.** A aplicação mostra o texto da regra que disparou, sem reconstruí-lo.
+- **`None` é diferente de `False`.** Um segmento sem dado de associação à marca não é um segmento com associação alta. A regra R3 só dispara com `True`.
+
+---
+
+## Os testes
+
+Cada regra tem pelo menos um teste. Os limites e a ausência de dado também:
+
+```python
+import pytest
+from engine import Contexto, decide, LIMIAR_ALTO, LIMIAR_RELEVANTE
+
+
+def ctx(**kw):
+    base = dict(score=0.9, delivery_forte=False, consumo_domestico_recorrente=False,
+                associacao_marca_baixa=False)
+    return Contexto(**{**base, **kw})
+
+
+def test_score_alto_e_delivery_forte_ativa_delivery():
+    d = decide(ctx(delivery_forte=True))
+    assert (d.regra_id, d.categoria) == ("R1", "delivery")
+
+
+def test_score_alto_e_consumo_domestico_ativa_consumo_em_casa():
+    assert decide(ctx(consumo_domestico_recorrente=True)).categoria == "consumo_em_casa"
+
+
+def test_delivery_tem_prioridade_sobre_consumo_domestico():
+    d = decide(ctx(delivery_forte=True, consumo_domestico_recorrente=True))
+    assert d.regra_id == "R1"
+
+
+def test_score_relevante_com_baixa_associacao_ativa_awareness():
+    assert decide(ctx(score=0.5, associacao_marca_baixa=True)).categoria == "awareness"
+
+
+def test_sem_dado_de_associacao_nao_dispara_awareness():
+    assert decide(ctx(score=0.5, associacao_marca_baixa=None)).categoria == "sem_ativacao"
+
+
+@pytest.mark.parametrize("score,esperado", [
+    (LIMIAR_ALTO, "delivery"),
+    (LIMIAR_ALTO - 0.01, "sem_ativacao"),
+])
+def test_limite_do_score_alto(score, esperado):
+    assert decide(ctx(score=score, delivery_forte=True)).categoria == esperado
+
+
+def test_score_abaixo_do_relevante_nunca_ativa():
+    assert decide(ctx(score=LIMIAR_RELEVANTE - 0.01, delivery_forte=True,
+                      associacao_marca_baixa=True)).categoria == "sem_ativacao"
+
+
+def test_toda_decisao_tem_justificativa():
+    assert decide(ctx()).justificativa
+```
+
+Rode com `pytest`. Os nove testes do exemplo passam, e cobrem: cada categoria, a prioridade entre R1 e R2, o dado ausente, o limite exato do score alto (0,60 dispara; 0,59 não), o piso do score relevante e a presença de justificativa em toda decisão.
+
+Esses testes são a documentação executável do Engine. Se alguém alterar um limiar ou a ordem, algum teste falha e mostra qual comportamento mudou.
+
+---
+
+## A regra que depende de um dado que ninguém mede
+
+A regra R3 exige saber se a **associação atual à marca** é baixa no segmento. Nenhuma fonte aberta mede isso diretamente. O Google Trends de "guaraná antarctica" por UF é, no máximo, um proxy fraco. O que fazer:
+
+| Opção | Como fica | Custo |
+| :--- | :--- | :--- |
+| **Receber o dado da empresa** | `associacao_marca_baixa` vem de uma pesquisa fornecida | Depende de a Ambev ceder o dado |
+| **Proxy documentado** | Usar Trends por UF como aproximação, com limitação escrita | A regra fica frágil e deve ser rotulada como tal |
+| **Redesenhar a regra** | Trocar a condição por algo que se consiga medir, como "segmento com baixa afinidade de consumo na POF" | Muda o significado da regra |
+| **Não disparar** | `None` desativa R3 e o sistema registra a limitação | A categoria de awareness nunca aparece |
+
+Em qualquer caso, **documente a escolha** no Data Card e no README. O exemplo desta aula usa a última: com `None`, o teste garante que R3 não dispara.
+
+<NoProjeto titulo="No projeto: dois contextos passando pelo Engine">
+"Campinas, sexta, 20h, chuva" chega com score alto e delivery forte: R1 dispara, e a aplicação mostra "ativação via delivery" com a justificativa da regra. "Recife, terça, 13h" chega com score baixo: nenhuma regra casa e o resultado é `sem_ativacao`, também com justificativa. Nenhum dos dois resultados diz que a ação venderá mais que outra: o Engine escolhe uma categoria coerente, e só.
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas do Engine]
+1. **Regras em `if` espalhados.** Ninguém consegue listar o que o sistema decide.
+2. **Ordem implícita.** Se duas regras casam, o resultado depende do acaso da implementação.
+3. **Tratar dado ausente como falso.** `None` e `False` significam coisas diferentes.
+4. **Justificativa genérica.** "Recomendação do modelo" não diz qual regra disparou.
+5. **Afirmar causalidade na justificativa.** "Aumentará as vendas" está fora do que o TAPI permite.
+:::
+
+<Quiz
+  id="ambev-a9"
+  perguntas={[
+    {
+      pergunta: 'Um contexto tem score 0,8, delivery forte e consumo doméstico recorrente. Qual categoria o Engine devolve?',
+      opcoes: [
+        {texto: 'consumo_em_casa', explicacao: 'R2 também casa, mas R1 vem antes e vence.'},
+        {texto: 'delivery', correta: true, explicacao: 'A primeira regra que casa vence, e R1 está antes de R2.'},
+        {texto: 'As duas, em uma lista', explicacao: 'O TAPI pede uma categoria coerente, não uma lista.'},
+      ],
+    },
+    {
+      pergunta: 'Por que `associacao_marca_baixa` aceita `None`?',
+      opcoes: [
+        {texto: 'Para economizar memória', explicacao: 'Não é uma questão de memória.'},
+        {texto: 'Porque "sem dado" é diferente de "associação alta", e a regra não deve disparar', correta: true, explicacao: 'Tratar ausência como falso esconde uma limitação.'},
+        {texto: 'Porque o Python exige', explicacao: 'É uma decisão de projeto, não uma exigência da linguagem.'},
+      ],
+    },
+    {
+      pergunta: 'O score cai de 0,60 para 0,59 e a regra de delivery deixa de disparar. Qual teste documenta isso?',
+      opcoes: [
+        {texto: 'Um teste de limite, com os valores 0,60 e 0,59', correta: true, explicacao: 'Testes de fronteira mostram onde o comportamento muda.'},
+        {texto: 'Nenhum, é um detalhe', explicacao: 'O limiar é parte da especificação e precisa de teste.'},
+        {texto: 'Um teste do modelo de predição', explicacao: 'O limiar pertence ao Engine, não ao modelo.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: adicione uma regra]
+Acrescente uma regra R4 ao motor (por exemplo, para um canal que você tenha) e escreva três testes: um que dispara, um que não dispara e um que mostra a prioridade em relação às outras. Depois escreva a justificativa como a aplicação a exibiria.
+
+<details>
+<summary>Dica</summary>
+
+Decida primeiro onde R4 entra na lista. Se ela deve vencer R1 em algum caso, ponha-a antes e escreva um teste que garanta isso.
+</details>
+:::
+
+---
+
+## Resumo
+
+- **Regras são dados**: id, condição, categoria e justificativa, em uma lista ordenada.
+- **A ordem e os limiares** são parte da especificação e precisam de teste.
+- Cada decisão devolve a **justificativa** da regra que disparou.
+- **`None` não é `False`**: dado ausente desativa a regra e deve ficar documentado.
+- A regra de **awareness** precisa de uma solução explícita para o dado que não existe.
+
+## Referências
+
+- [Termo de abertura do case Ambev](/projetos/ambev/tapi): seção "Decision Engine".
+- [Fontes e APIs do case](/projetos/ambev/materiais/guia-de-fontes-e-apis): o que o Google Trends mede e o que não mede.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [pytest: parametrize](https://docs.pytest.org/en/stable/how-to/parametrize.html) *(em inglês)*: testar cada linha da tabela de regras com um caso.
+- [Rules of Machine Learning (Google)](https://developers.google.com/machine-learning/guides/rules-of-ml) *(em inglês)*: por que regras simples e auditáveis vêm antes de lógica escondida no modelo.
+
+**Vídeos**
+
+- [Please Learn How To Write Tests in Python… • Pytest Tutorial](https://www.youtube.com/watch?v=EgpLj86ZHFQ) *(em inglês)*: pytest do zero: asserts, fixtures e parametrização.
+
+**Próxima aula:** [Contrato, API e reprodutibilidade](/projetos/ambev/materiais/contrato-api-e-reprodutibilidade): expor score, categoria e justificativa num contrato versionado e reproduzível.

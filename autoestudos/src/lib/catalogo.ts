@@ -4,7 +4,7 @@ import {getProjetos, getTrilhas} from './content';
 export type Entrada = {
   titulo: string;
   url: string;
-  tipo: 'Trilha' | 'Módulo' | 'Aula' | 'Projeto' | 'TAPI' | 'Entregas' | 'Guia';
+  tipo: 'Trilha' | 'Módulo' | 'Aula' | 'Projeto' | 'TAPI' | 'Entregas' | 'Estudo' | 'Guia';
   contexto: string;
 };
 
@@ -18,7 +18,7 @@ export function catalogo(): Entrada[] {
   for (const pr of getProjetos()) {
     out.push({titulo: pr.titulo, url: `/projetos/${pr.slug}/`, tipo: 'Projeto', contexto: pr.parceiro});
     for (const p of pr.pages) {
-      const tipo = p.secao === 'tapi' ? 'TAPI' : p.secao === 'entregas' ? 'Entregas' : 'Guia';
+      const tipo = p.secao === 'tapi' ? 'TAPI' : p.secao === 'entregas' ? 'Entregas' : p.secao === 'estudo' ? 'Estudo' : 'Guia';
       out.push({titulo: p.label, url: `/${p.slug}/`, tipo, contexto: pr.nome});
     }
   }
