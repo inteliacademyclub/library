@@ -1,0 +1,175 @@
+---
+secao: estudo
+sidebar_position: 11
+sidebar_label: 'Mapa de Oportunidade'
+title: 'Mapa de Oportunidade como regra territorial'
+description: 'Como priorizar municípios e regiões cruzando o Occasion Score com a densidade de pizzarias e o perfil territorial, como regra do Decision Engine e não como uma nova previsão.'
+---
+
+# Mapa de Oportunidade: Priorizar Território sem uma Nova Previsão
+
+<LessonMeta
+  tempo="30 min"
+  opcional
+  objetivos={[
+    'Explicar por que a priorização territorial é uma regra e não um segundo modelo',
+    'Combinar score, densidade de pizzarias e perfil territorial em uma regra documentada',
+    'Escrever a justificativa e a recomendação de canal de cada prioridade',
+    'Reconhecer os limites de cobertura do OSM e do CNPJ',
+  ]}
+  prerequisitos={[
+    {label: 'Decision Engine: tabela de regras testável', to: '/projetos/ambev/materiais/decision-engine-tabela-de-regras-testavel'},
+  ]}
+/>
+
+O Mapa de Oportunidade é uma das três extensões opcionais do TAPI. Ele cruza o Occasion Score com a densidade de pizzarias (OpenStreetMap) e o perfil territorial (IBGE/SIDRA) para priorizar **regiões e contextos**. O TAPI deixa claro o estatuto dessa priorização: é **uma regra documentada do Decision Engine aplicada ao território, e não uma nova previsão**.
+
+:::info[Ideia central]
+O modelo continua produzindo só o score. O mapa **aplica regras** sobre o score médio de cada município e sobre dados de oferta e perfil, e devolve uma prioridade com justificativa e canal.
+:::
+
+---
+
+## As três entradas
+
+| Entrada | Fonte | O que traz | Cuidado |
+| :--- | :--- | :--- | :--- |
+| **Score médio do município** | Modelo principal | Quão relevante é o território para a ocasião | É a saída do modelo, sem recalcular |
+| **Densidade de pizzarias** | Overpass/OSM | Oferta local de pizzarias | A cobertura do OSM varia muito entre cidades |
+| **Perfil territorial** | IBGE SIDRA (Censo 2022) | População, renda e domicílios | Dado estático: uma foto |
+
+O CNPJ da Receita Federal pode servir para **checar a cobertura do OSM**: ele lista restaurantes e lanchonetes ativos por município, via CNAE. Não existe CNAE específico de pizzaria, então ele é uma conferência de ordem de grandeza, não uma contagem.
+
+---
+
+## A regra
+
+Uma versão mínima, com dados **ilustrativos** e limiares documentados no próprio código:
+
+```python
+import pandas as pd
+
+mun = pd.DataFrame({
+    "municipio": ["A", "B", "C", "D"],
+    "score_medio": [0.72, 0.68, 0.35, 0.66],        # saída do modelo principal (ilustrativo)
+    "pizzarias_por_100mil": [45.0, 6.0, 40.0, 30.0],  # OSM, com cobertura a verificar
+    "populacao": [900_000, 150_000, 500_000, 300_000],      # Censo 2022
+})
+
+SCORE_ALTO, OFERTA_ALTA, POP_MIN = 0.60, 20.0, 100_000   # limiares documentados
+
+def prioridade(r):
+    if r.populacao < POP_MIN or r.score_medio < SCORE_ALTO:
+        return "baixa", "Score abaixo do limiar ou município pequeno."
+    if r.pizzarias_por_100mil >= OFERTA_ALTA:
+        return "alta", "Score alto e oferta densa: ativação via parceiros e delivery."
+    return "media", "Score alto e oferta escassa: construir presença antes de ativar."
+
+res = mun.copy()
+res[["prioridade", "justificativa"]] = res.apply(lambda r: pd.Series(prioridade(r)), axis=1)
+ordem = {"alta": 0, "media": 1, "baixa": 2}
+res = res.sort_values(["prioridade", "score_medio"], key=lambda s: s.map(ordem) if s.name == "prioridade" else -s)
+print(res[["municipio", "prioridade"]].to_string(index=False))
+assert list(res.municipio) == ["A", "D", "B", "C"]
+```
+
+A regra tem três saídas:
+
+| Prioridade | Quando | Canal e justificativa |
+| :--- | :--- | :--- |
+| **Alta** | Score alto, população mínima e oferta densa | Ativação via parceiros e delivery |
+| **Média** | Score alto, população mínima e oferta escassa | Construir presença antes de ativar |
+| **Baixa** | Score abaixo do limiar ou município pequeno | Sem prioridade nesta rodada |
+
+A saída do exemplo ordena A e D como alta, B como média e C como baixa. Note que **B tem score alto e fica atrás** de D: a oferta escassa muda a recomendação, e a justificativa diz isso.
+
+Os limiares (0,60 de score, 20 pizzarias por 100 mil habitantes, 100 mil habitantes) são **ilustrativos**. Defina os seus com base nos dados, e registre o motivo.
+
+<NoProjeto titulo="No projeto: do contexto ao território">
+O Engine decide a categoria de ativação de um contexto ("Campinas, sexta, 20h, chuva"). O mapa decide **onde olhar primeiro** entre muitos municípios. Os dois usam o mesmo princípio: regras explícitas, justificativa e nenhuma alegação causal. A prioridade "alta" não diz que a ativação vai funcionar: diz que, pelas regras, o município merece atenção primeiro.
+</NoProjeto>
+
+---
+
+## Limites que precisam ficar escritos
+
+- **Cobertura do OSM.** Uma cidade com poucas pizzarias mapeadas parece ter oferta escassa. Confira com o CNPJ e documente o que não dá para concluir.
+- **Score agregado.** A média por município esconde variações entre bairros e horários.
+- **Perfil estático.** O Censo 2022 é uma foto: não reflete mudanças posteriores.
+- **Nenhuma causalidade.** A prioridade não é uma previsão de resultado de campanha.
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas do mapa]
+1. **Treinar um segundo modelo para priorizar municípios.** O TAPI pede uma regra, não uma nova previsão.
+2. **Confiar na contagem do OSM sem checar.** A cobertura varia muito.
+3. **Limiares sem justificativa.** Cada número da regra precisa de um motivo escrito.
+4. **Prioridade sem canal.** O TAPI pede recomendação de canal junto da justificativa.
+5. **Mapa bonito, regra opaca.** Mostre a regra ao lado do mapa.
+:::
+
+<Quiz
+  id="ambev-a10"
+  perguntas={[
+    {
+      pergunta: 'Qual é o estatuto da priorização do Mapa de Oportunidade?',
+      opcoes: [
+        {texto: 'Uma nova previsão supervisionada', explicacao: 'O TAPI diz que não é uma nova previsão.'},
+        {texto: 'Uma regra documentada do Decision Engine aplicada ao território', correta: true, explicacao: 'É exatamente a definição do TAPI.'},
+        {texto: 'Um ranking de vendas esperadas', explicacao: 'O sistema não afirma vendas nem causalidade.'},
+      ],
+    },
+    {
+      pergunta: 'Um município tem score alto, mas poucas pizzarias no OSM. O que o grupo deve fazer antes de concluir "oferta escassa"?',
+      opcoes: [
+        {texto: 'Aceitar a contagem, porque o OSM é oficial', explicacao: 'A cobertura do OSM varia muito entre cidades.'},
+        {texto: 'Conferir a ordem de grandeza com o CNPJ da Receita e documentar a incerteza', correta: true, explicacao: 'O CNPJ não conta pizzarias, mas ajuda a ver se o OSM está incompleto.'},
+        {texto: 'Descartar o município', explicacao: 'Descartar sem checar é perder um possível alvo prioritário.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: sua regra territorial]
+Escolha cinco municípios do seu painel e aplique a regra. Para cada um, escreva a prioridade, a justificativa e o canal. Depois mude um limiar e veja quais municípios trocam de prioridade.
+
+<details>
+<summary>Dica</summary>
+
+Se mudar um limiar em 10% troca metade dos municípios de classe, a regra é frágil. Registre isso como limitação.
+</details>
+:::
+
+---
+
+## Resumo
+
+- O mapa **aplica uma regra** sobre o score do modelo, a oferta e o perfil territorial.
+- Cada prioridade vem com **justificativa e canal**.
+- **OSM e CNPJ** se complementam: um conta, o outro confere a ordem de grandeza.
+- Os limiares são **documentados**, e nenhuma prioridade alega causalidade.
+
+## Referências
+
+- [Termo de abertura do case Ambev](/projetos/ambev/tapi): seção "Demais entregáveis (opcionais)".
+- [Fontes e APIs do case](/projetos/ambev/materiais/guia-de-fontes-e-apis): OSM, CNPJ, SIDRA e geobr.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [GeoPandas: Merging data](https://geopandas.org/en/stable/docs/user_guide/mergingdata.html) *(em inglês)*: `sjoin` e `sjoin_nearest` para cruzar pontos e municípios.
+- [geobr (IPEA)](https://github.com/ipeaGIT/geobr): malhas oficiais de municípios e setores censitários em Python.
+- [Overpass API (OpenStreetMap Wiki)](https://wiki.openstreetmap.org/wiki/Overpass_API) *(em inglês)*: como consultar pizzarias (`cuisine=pizza`) por área.
+- [pydeck](https://deckgl.readthedocs.io/) *(em inglês)*: mapas interativos no Streamlit.
+
+**Vídeos**
+
+- [Geospatial Python - Full Course for Beginners with Geopandas](https://www.youtube.com/watch?v=0mWgVVH_dos) *(em inglês)*: curso completo de geopandas.
+- [GeoPandas · Merging Worlds: Spatial and Nearest Joins](https://www.youtube.com/watch?v=GcIIDZZdoZc) *(em inglês)*: joins espaciais e por proximidade.
+
+**Próxima aula:** [Clusterização de contextos](/projetos/ambev/materiais/clusterizacao-de-contextos) (opcional).

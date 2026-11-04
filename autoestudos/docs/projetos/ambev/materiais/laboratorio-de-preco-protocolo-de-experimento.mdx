@@ -1,0 +1,185 @@
+---
+secao: estudo
+sidebar_position: 14
+sidebar_label: 'Laboratório de Preço'
+title: 'Laboratório de Preço: protocolo de experimento'
+description: 'Como desenhar o protocolo de um experimento de preço ou promoção no case Ambev, com hipótese, grupos de teste e controle, métrica de margem, tamanho de amostra e critério de decisão, sem alegar elasticidade sem dados reais.'
+---
+
+# Laboratório de Preço: o Protocolo antes do Experimento
+
+<LessonMeta
+  tempo="40 min"
+  opcional
+  objetivos={[
+    'Explicar por que o Laboratório de Preço exige dados que não são públicos',
+    'Escrever hipótese, grupos de teste e controle, métrica de margem e critério de decisão',
+    'Calcular o tamanho de amostra necessário para detectar um efeito',
+    'Evitar alegações de elasticidade ou preço ótimo sem dados reais',
+  ]}
+  prerequisitos={[
+    {label: 'Fontes e APIs do case', to: '/projetos/ambev/materiais/guia-de-fontes-e-apis'},
+  ]}
+/>
+
+O Laboratório de Preço testa combos e faixas de desconto para encontrar oportunidades de **margem incremental**. É a mais ambiciosa das três extensões opcionais, e também a mais restrita pelos dados. O TAPI é claro: ela exige **dados transacionais que não são públicos**, vindos de uma **integração autorizada com um restaurante parceiro**, via Open Delivery, PDV ou CRM.
+
+:::warning[Sem parceiro, a entrega termina no protocolo]
+O TAPI diz que, sem parceiro e dados autorizados, a entrega termina no **protocolo do experimento**: hipótese, grupos de teste e controle, métrica de margem e critério de decisão. Só depois de resultados reais e testes A/B é possível falar em elasticidade ou em preço ótimo.
+:::
+
+---
+
+## Que dados seriam necessários
+
+| Dado | Para quê |
+| :--- | :--- |
+| Pedidos e itens | Medir o que foi vendido em cada combo |
+| Preço e desconto | Saber o que cada cliente pagou |
+| Frete e custo | Calcular a margem de verdade |
+| Canal e horário | Segmentar e controlar o contexto |
+| Resultado da oferta | Medir o efeito |
+
+**Open Delivery** (Abrasel) é um padrão aberto para cardápio, pedidos e status, mas é uma **especificação, e não uma base de dados**: os dados só vêm de um restaurante parceiro.
+
+Os scrapers de iFood citados no TAPI coletam **preço de vitrine**, e o TAPI alerta: são referências técnicas, não fontes oficiais, dependem de interfaces que podem mudar, dois não informam licença e o uso exige respeitar os termos da plataforma e a LGPD. Preço de vitrine **não comprova vendas, margem ou demanda**: entra, no máximo, como contexto de oferta e concorrência.
+
+---
+
+## O protocolo
+
+O protocolo é um documento que se escreve **antes** de rodar o experimento. Seis campos:
+
+| Campo | O que escrever | Exemplo (ilustrativo) |
+| :--- | :--- | :--- |
+| **Hipótese** | O que se espera, em termos mensuráveis | "Um combo pizza com Guaraná a 10% de desconto aumenta a margem por pedido nas sextas à noite" |
+| **Unidade de aleatorização** | O que é sorteado | Pedido, cliente ou loja, por período |
+| **Grupos** | Teste (com a oferta) e controle (sem ela) | 50% e 50%, sorteados |
+| **Métrica principal** | A medida de decisão | Margem incremental por pedido (preço menos custo e desconto, incluindo frete) |
+| **Métricas de proteção** | O que não pode piorar | Volume de pedidos, ticket médio, reclamações |
+| **Critério de decisão** | Quando adotar, descartar ou repetir | "Adotar se a margem sobe e o volume não cai além de X" |
+
+Escreva também o **período**, o **tamanho de amostra** e as **exclusões** (feriados atípicos, campanhas simultâneas).
+
+---
+
+## Quanto de amostra
+
+Um experimento pequeno demais não consegue distinguir efeito de acaso. Uma aproximação com a distribuição normal dá o tamanho por grupo para detectar uma diferença de média:
+
+```python
+from math import ceil
+from scipy.stats import norm
+
+def n_por_grupo(delta, desvio, alpha=0.05, poder=0.8):
+    """Tamanho de amostra por grupo para detectar diferença de média `delta` (teste bicaudal, aproximação normal)."""
+    z = norm.ppf(1 - alpha / 2) + norm.ppf(poder)
+    return ceil(2 * (z * desvio / delta) ** 2)
+
+# Exemplo ilustrativo: margem por pedido com desvio de R$ 8; queremos detectar +R$ 1.
+print(n_por_grupo(delta=1.0, desvio=8.0))
+assert n_por_grupo(1.0, 8.0) == 1005
+assert n_por_grupo(2.0, 8.0) < n_por_grupo(1.0, 8.0)
+```
+
+Com **desvio de R$ 8 na margem por pedido** e um efeito alvo de **R$ 1**, são necessários cerca de **1.005 pedidos por grupo** (valores **ilustrativos**). Com um efeito alvo de R$ 2, o tamanho cai (a asserção do exemplo confere isso). Dois lembretes:
+
+- a conta **supõe** teste bicaudal, nível de 5% e poder de 80%, e uma distribuição aproximadamente normal;
+- o desvio vem dos **dados do parceiro**: sem ele, a conta é só um exercício.
+
+<NoProjeto titulo="No projeto: o que o Decision Engine pode e não pode dizer">
+O Engine pode recomendar uma **categoria** (por exemplo, "promoção ou combo para consumo em casa"). O Laboratório de Preço é o que permitiria dizer qual **nível de desconto** funciona melhor, e isso exige experimento. Sem ele, o sistema continua sem afirmar que uma ação vende mais que outra.
+</NoProjeto>
+
+---
+
+## Cuidados éticos e legais
+
+- **Dados do parceiro** exigem autorização e cuidado com LGPD.
+- **Preços diferentes para clientes parecidos** podem gerar problemas de percepção e, dependendo do desenho, de conformidade: valide com o parceiro e com quem entende de regulação.
+- **Não use scrapers** sem checar termos de uso, licença e LGPD.
+
+Este material não é aconselhamento jurídico.
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas do laboratório]
+1. **Falar em elasticidade sem experimento.** Só testes A/B reais sustentam isso.
+2. **Usar preço de vitrine como margem.** Ele não inclui custo nem volume.
+3. **Escrever o critério de decisão depois de ver os resultados.** O protocolo vale antes.
+4. **Amostra pequena demais.** O experimento não distingue efeito de acaso.
+5. **Ignorar métricas de proteção.** Uma margem maior com volume desabando pode ser prejuízo.
+:::
+
+<Quiz
+  id="ambev-a16"
+  perguntas={[
+    {
+      pergunta: 'O grupo só tem preços de vitrine coletados de um app. O que pode afirmar?',
+      opcoes: [
+        {texto: 'A elasticidade-preço da demanda', explicacao: 'Preço de vitrine não mostra demanda.'},
+        {texto: 'No máximo, o contexto de oferta e concorrência', correta: true, explicacao: 'É o limite que o TAPI estabelece.'},
+        {texto: 'A margem do restaurante', explicacao: 'Preço de vitrine não inclui custo.'},
+      ],
+    },
+    {
+      pergunta: 'Quando o critério de decisão do experimento deve ser escrito?',
+      opcoes: [
+        {texto: 'Antes de rodar, no protocolo', correta: true, explicacao: 'Escrever depois permite adaptar o critério ao resultado.'},
+        {texto: 'Depois de ver os resultados, para ser realista', explicacao: 'É o caminho para enganar a si mesmo.'},
+        {texto: 'Não é necessário', explicacao: 'O TAPI pede o critério de decisão no protocolo.'},
+      ],
+    },
+    {
+      pergunta: 'O efeito que você quer detectar cai pela metade. O que acontece com o tamanho de amostra por grupo?',
+      opcoes: [
+        {texto: 'Cai pela metade', explicacao: 'A relação é quadrática, não linear.'},
+        {texto: 'Cresce cerca de quatro vezes', correta: true, explicacao: 'Na fórmula, o tamanho depende do inverso do quadrado do efeito.'},
+        {texto: 'Não muda', explicacao: 'Efeitos menores exigem amostras maiores.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: escreva o seu protocolo]
+Preencha os seis campos para uma oferta que você imagina testar. Depois calcule o tamanho de amostra para dois efeitos-alvo e diga se o seu parceiro hipotético teria volume para isso em um período razoável.
+
+<details>
+<summary>Dica</summary>
+
+Se o volume não alcança, o protocolo deve dizer isso: aumentar o período, aumentar o efeito-alvo ou aceitar que o experimento não é viável. Dizer que não é viável é um resultado.
+</details>
+:::
+
+---
+
+## Resumo
+
+- O laboratório exige **dados transacionais autorizados** de um parceiro; sem eles, a entrega é o **protocolo**.
+- O protocolo tem **hipótese, aleatorização, grupos, métrica de margem, métricas de proteção e critério de decisão**.
+- **Tamanho de amostra** depende do efeito-alvo e do desvio: efeitos pequenos exigem amostras grandes.
+- **Elasticidade e preço ótimo** só com testes A/B reais.
+- **Preço de vitrine** é contexto, nunca margem ou demanda.
+
+## Referências
+
+- [Termo de abertura do case Ambev](/projetos/ambev/tapi): seção "Demais entregáveis (opcionais)".
+- [Fontes e APIs do case](/projetos/ambev/materiais/guia-de-fontes-e-apis): Open Delivery e scrapers.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [Experiment Guide (Kohavi, Tang e Xu)](https://experimentguide.com/) *(em inglês)*: o site do livro *Trustworthy Online Controlled Experiments*.
+- [statsmodels: power e tamanho de amostra](https://www.statsmodels.org/stable/stats.html) *(em inglês)*: funções como `tt_ind_solve_power` para calcular o tamanho dos grupos.
+
+**Vídeos**
+
+- [The ultimate guide to A/B testing (Ronny Kohavi no Lenny's Podcast)](https://www.youtube.com/watch?v=BHVis5nke9c) *(em inglês)*: erros comuns em experimentos e como confiar no resultado.
+- [Online Controlled Experiments: Lessons from Running A/B/n Tests for 12 Years (Ron Kohavi)](https://www.youtube.com/watch?v=qtboCGd_hTA) *(em inglês)*: palestra com casos reais de experimentos.
+
+**Próxima etapa:** volte ao [roadmap](/projetos/ambev/roadmap) para conferir o que falta na entrega.

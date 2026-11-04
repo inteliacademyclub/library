@@ -1,0 +1,222 @@
+---
+secao: estudo
+sidebar_position: 5
+sidebar_label: 'Juntando granularidades'
+title: 'Juntando granularidades no DuckDB'
+description: 'Como montar o painel do case Ambev juntando fontes com períodos e níveis diferentes, com ASOF join, chaves coerentes e checagens de cardinalidade no DuckDB.'
+---
+
+# Juntando Granularidades no DuckDB: o Painel sem Misturar Períodos
+
+<LessonMeta
+  tempo="40 min"
+  etapa="dados"
+  objetivos={[
+    'Listar a granularidade de cada fonte do case e escolher a do painel',
+    'Agregar cada fonte para a unidade de análise antes de juntar',
+    'Usar um ASOF join para recuperar o que se sabia no instante de previsão',
+    'Escrever checagens que provam que o join não criou nem perdeu linhas',
+  ]}
+  prerequisitos={[
+    {label: 'Instante de previsão com dados de contexto', to: '/projetos/ambev/materiais/instante-de-previsao-com-dados-de-contexto'},
+    {label: 'Fontes e APIs do case', to: '/projetos/ambev/materiais/guia-de-fontes-e-apis'},
+  ]}
+/>
+
+O erro mais comum de integração não dá mensagem de erro. Você tem um target anual por capital, clima por hora e um dado do Censo que nunca muda. Faz um `merge` por município, o código roda, o DataFrame fica enorme e o modelo atinge uma métrica excelente. A métrica é falsa: o mesmo valor anual foi copiado para centenas de linhas, e o modelo só aprendeu a reconhecer o município.
+
+O TAPI é explícito: **fontes com períodos ou granularidades incompatíveis não são combinadas como se fossem a mesma observação**. Esta aula mostra como montar o painel respeitando essa regra.
+
+:::info[Ambiente deste módulo]
+Os trechos foram testados com Python 3.12 e as versões do guia da trilha: `duckdb` 1.5.5, `pandas` 3.0.6, `numpy` 2.5.3, `scikit-learn` 1.9.1, `pydantic` 2.13.5, `fastapi` 0.162 e `pytest` 9.2. Também rodam com o DuckDB 2.0 e o pandas 3.1. Instale com `uv add duckdb==1.5.5 pandas==3.0.6 numpy==2.5.3 scikit-learn==1.9.1 pydantic==2.13.5 fastapi==0.162.0 httpx==0.28.1` e `uv add --dev pytest==9.2.0`. Se usar outras versões, rode os testes antes de confiar.
+:::
+
+---
+
+## Cada fonte tem a sua granularidade
+
+Antes de escrever qualquer `JOIN`, anote o nível de cada fonte:
+
+| Fonte | Granularidade | Chave | Como entra no painel |
+| :--- | :--- | :--- | :--- |
+| Target (POF ou Vigitel) | Perfil, ou capital por ano | Código IBGE, ano | Define a unidade. O painel não pode ser mais fino que ele |
+| Pedidos de delivery (se houver parceiro) | Pedido, com dia e hora | Município, data e hora | Agregado para a unidade |
+| Open-Meteo e INMET | Hora, por coordenada ou estação | Município, hora | Agregado (média, soma ou máximo) para a unidade |
+| Previsão do tempo (Previous Runs) | Emissão por validade | Município, validade, emissão | ASOF: a última emissão até o instante de previsão |
+| Feriados (BrasilAPI) | Dia | Data | Marca o dia na unidade |
+| Censo (SIDRA) | Município, uma foto | Código IBGE | Junção simples, sem tempo |
+| Pizzarias (Overpass/OSM) | Snapshot datado | Município, data do snapshot | Último snapshot anterior ao instante |
+| Google Trends | UF, por semana | UF, semana | Atenção: a semana do evento ainda não existe na hora de prever |
+
+A regra de ouro: **agregue cada fonte para a unidade do painel antes de juntar**. Juntar primeiro e agregar depois multiplica linhas.
+
+---
+
+## O painel base
+
+Comece por uma tabela que só tem as chaves da unidade, sem nenhuma informação. Cada fonte vira uma coluna a mais, e a tabela nunca pode ganhar nem perder linhas.
+
+O trecho abaixo monta o painel município por semana, com uma previsão de clima emitida em momentos diferentes e um dado estático do Censo. Os dados são **sintéticos**, só para mostrar a mecânica.
+
+```python
+import duckdb
+import pandas as pd
+
+con = duckdb.connect()
+
+# Painel base: um município por semana (a unidade de análise).
+con.sql("""
+    CREATE TABLE painel AS
+    SELECT m.cod_ibge, s.semana
+    FROM (VALUES (3509502), (2611606)) AS m(cod_ibge)
+    CROSS JOIN (SELECT CAST(d AS DATE) AS semana
+                FROM range(DATE '2025-01-06', DATE '2025-02-03', INTERVAL 7 DAY) AS t(d)) AS s
+""")
+
+# Previsões de clima: várias emissões para a mesma semana (o que se sabia em cada momento).
+prev = pd.DataFrame({
+    "cod_ibge":   [3509502] * 3,
+    "valido_para": pd.to_datetime(["2025-01-13"] * 3),
+    "emitido_em": pd.to_datetime(["2025-01-10 08:00", "2025-01-12 08:00", "2025-01-14 08:00"]),
+    "chuva_mm":   [2.0, 9.0, 30.0],  # a última emissão é posterior ao instante de previsão
+})
+con.register("clima_prev", prev)
+
+# Dado estático do Censo: uma foto por município.
+con.register("censo", pd.DataFrame({"cod_ibge": [3509502, 2611606], "renda_media": [3100.0, 1900.0]}))
+
+# Instante de previsão: domingo anterior, 20h.
+con.sql("""
+    CREATE TABLE painel_v AS
+    SELECT *, CAST(semana AS TIMESTAMP) - INTERVAL 1 DAY + INTERVAL 20 HOUR AS instante_previsao
+    FROM painel
+""")
+
+df = con.sql("""
+    SELECT p.cod_ibge, p.semana, c.chuva_mm, c.emitido_em, s.renda_media
+    FROM painel_v p
+    ASOF LEFT JOIN clima_prev c
+      ON p.cod_ibge = c.cod_ibge
+     AND p.semana = c.valido_para
+     AND p.instante_previsao >= c.emitido_em
+    LEFT JOIN censo s ON p.cod_ibge = s.cod_ibge
+    ORDER BY p.cod_ibge, p.semana
+""").df()
+print(df)
+
+# Checagens: o join não pode criar nem perder linhas, e a chave precisa ser única.
+n_base = con.execute("SELECT count(*) FROM painel").fetchone()[0]
+assert len(df) == n_base, "o join mudou o número de linhas"
+assert not df.duplicated(["cod_ibge", "semana"]).any(), "chave duplicada"
+row = df[(df.cod_ibge == 3509502) & (df.semana == "2025-01-13")].iloc[0]
+assert row.chuva_mm == 9.0, "usou uma previsão posterior ao instante"
+print("ok")
+```
+
+O que acontece no `ASOF LEFT JOIN`:
+
+- ele procura, para cada município e semana, a emissão de previsão **mais recente** que seja anterior ou igual ao `instante_previsao`;
+- a emissão de 14/01, posterior ao instante, é ignorada: o valor escolhido para a semana de 13/01 é `9.0`, e não `30.0`;
+- semanas sem nenhuma previsão ficam com `NaN`, e o painel mantém a linha.
+
+:::tip[Compatível com o DuckDB 2.0]
+O código usa `con.execute(...).fetchone()` porque, no DuckDB 2.0, uma relação criada com `con.sql(...)` não tem mais `fetchone()`. Assim ele roda no 1.5 e no 2.0. Para trazer um DataFrame, use `.df()`.
+:::
+
+---
+
+## As checagens que valem mais que o join
+
+Duas asserções no fim do trecho protegem o painel:
+
+1. **Número de linhas igual ao painel base.** Se o join multiplicou linhas, a fonte tem mais de um valor por chave. Agregue-a antes.
+2. **Chave única.** `(cod_ibge, semana)` não pode se repetir.
+
+Transforme-as em testes de `pytest` e rode a cada nova coleta. Quando uma API muda de formato, é aqui que você descobre.
+
+<NoProjeto titulo="No projeto: target anual, painel semanal">
+Se o seu target é anual por capital, **não** faça um painel semanal e copie o valor do ano em todas as semanas. Você terá 52 linhas que parecem independentes e são a mesma observação. Duas saídas honestas: tornar a unidade **capital por ano**, com features agregadas por ano; ou manter o painel semanal e usar o target anual apenas como **feature de perfil** (afinidade da região), com um target semanal vindo de outra fonte. Em qualquer caso, escreva a escolha no Data Card.
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de integração]
+1. **Juntar antes de agregar.** O número de linhas explode e as métricas ficam otimistas.
+2. **Copiar um valor grosso em linhas finas** (anual em semanal) e tratar as linhas como independentes.
+3. **Usar a emissão mais recente de uma previsão**, e não a última anterior ao instante de previsão.
+4. **Juntar por nome de município.** Use o código IBGE da API de Localidades: nomes têm acento, homônimos e grafias diferentes.
+5. **Não testar a chave.** Uma linha duplicada passa despercebida e pesa duas vezes na métrica.
+:::
+
+<Quiz
+  id="ambev-a5"
+  perguntas={[
+    {
+      pergunta: 'O painel base tem 8 linhas. Depois de juntar o clima, o resultado tem 24. O que provavelmente aconteceu?',
+      opcoes: [
+        {texto: 'O clima tem várias linhas por município e semana, e o join multiplicou o painel', correta: true, explicacao: 'A fonte tinha mais de um valor por chave. Agregue-a para a unidade antes de juntar.'},
+        {texto: 'O DuckDB está com defeito', explicacao: 'O join fez o que foi pedido. O erro está na granularidade da fonte.'},
+        {texto: 'É normal: mais colunas geram mais linhas', explicacao: 'Colunas novas nunca devem mudar o número de linhas do painel.'},
+      ],
+    },
+    {
+      pergunta: 'Para a semana de 13/01, existem previsões emitidas em 10/01, 12/01 e 14/01. O instante de previsão é 12/01 às 20h. Qual vale?',
+      opcoes: [
+        {texto: 'A de 14/01, por ser a mais recente', explicacao: 'Ela é posterior ao instante de previsão. É vazamento.'},
+        {texto: 'A de 12/01, a última emitida até o instante', correta: true, explicacao: 'O ASOF join escolhe a emissão mais recente que seja anterior ou igual ao instante.'},
+        {texto: 'A média das três', explicacao: 'Misturaria uma informação futura com as passadas.'},
+      ],
+    },
+    {
+      pergunta: 'O target vem do Vigitel (anual, por capital). Qual escolha respeita o TAPI?',
+      opcoes: [
+        {texto: 'Painel semanal, repetindo o valor anual em todas as semanas', explicacao: 'Linhas diferentes com o mesmo target viram falsa observação independente.'},
+        {texto: 'Painel capital por ano, com features agregadas por ano', correta: true, explicacao: 'A unidade acompanha a granularidade do target.'},
+        {texto: 'Painel por hora, para ter mais dados', explicacao: 'Mais linhas não dão mais informação quando o target é anual.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: monte o seu painel]
+Faça o inventário das suas fontes na tabela da aula (granularidade, chave, como entra). Escreva o painel base e junte uma fonte de cada tipo: estática, agregada e ASOF. Depois escreva os dois testes de cardinalidade.
+
+<details>
+<summary>Dica</summary>
+
+Se a contagem de linhas mudar, execute `SELECT cod_ibge, semana, count(*) FROM fonte GROUP BY ALL HAVING count(*) > 1` na fonte antes do join. Ela mostra quais chaves estão duplicadas.
+</details>
+:::
+
+---
+
+## Resumo
+
+- **Anote a granularidade** de cada fonte e escolha a do painel de acordo com o target.
+- **Agregue antes de juntar**, e use o código IBGE como chave.
+- Use **ASOF join** para recuperar o que se sabia no instante de previsão.
+- **Testes de cardinalidade** (linhas iguais e chave única) pegam o erro mais comum.
+- Um valor grosso **não vira** várias observações finas.
+
+## Referências
+
+- [Documentação do DuckDB](https://duckdb.org/docs/): consulte a seção de joins para a sintaxe do ASOF.
+- [Instante de previsão com dados de contexto](/projetos/ambev/materiais/instante-de-previsao-com-dados-de-contexto): a regra de disponibilidade que o ASOF implementa.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [DuckDB: ASOF join](https://duckdb.org/docs/current/guides/sql_features/asof_join) *(em inglês)*: a sintaxe e os casos de uso do join "o valor mais recente até aquele instante".
+- [pandas.merge_asof](https://pandas.pydata.org/docs/reference/api/pandas.merge_asof.html) *(em inglês)*: o equivalente em pandas, com os parâmetros `by`, `direction` e `tolerance`.
+- [API de Localidades do IBGE](https://servicodados.ibge.gov.br/api/docs/localidades): os códigos de município, UF e região usados como chave de todos os joins.
+
+**Vídeos**
+
+- [Getting Started With DuckDB For Data Analytics In Python](https://www.youtube.com/watch?v=3KZyUboRwM8) *(em inglês)*: introdução prática ao DuckDB a partir do Python.
+
+**Próxima aula:** [EDA da ocasião e features de contexto](/projetos/ambev/materiais/eda-da-ocasiao-e-features-de-contexto): o que olhar no painel antes de modelar.

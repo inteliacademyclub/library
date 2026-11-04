@@ -6,7 +6,7 @@ import matter from 'gray-matter';
 
 const ROOT = path.join(process.cwd(), 'docs');
 
-export type Secao = 'tapi' | 'entregas' | 'guias';
+export type Secao = 'tapi' | 'entregas' | 'estudo' | 'guias';
 
 export type Page = {
   /** Caminho da URL sem barras nas pontas, ex.: "aulas/rag-e-rerankers/chunking". */
@@ -136,11 +136,17 @@ function pagesIn(dir: string): Entrada[] {
 }
 
 const byPos = <T extends {position: number}>(a: T, b: T) => a.position - b.position;
+const byStatusAndPos = (a: Projeto, b: Projeto) => {
+  const ordem: Record<Projeto['status'], number> = {'em-andamento': 0, 'em-breve': 1, concluido: 2};
+  return ordem[a.status] - ordem[b.status] || byPos(a, b);
+};
 
 let cache: {trilhas: Trilha[]; projetos: Projeto[]; pages: Page[]} | undefined;
 
 function load() {
-  if (cache && process.env.NODE_ENV === 'production') return cache;
+  // Uma página consulta o catálogo em metadata, rotas e renderização. Reutilizar a
+  // mesma leitura evita reabrir e parsear todos os MDX a cada navegação no dev.
+  if (cache) return cache;
 
   const trilhas: Trilha[] = fs
     .readdirSync(path.join(ROOT, 'aulas'), {withFileTypes: true})
@@ -199,7 +205,7 @@ function load() {
           for (const x of pagesIn(it.file).filter((y) => !y.isDir)) pages.push(readPage(x.file, 'projetos', slug, {subgrupo: sub}));
         }
       }
-      const ordem: Record<Secao, number> = {tapi: 0, entregas: 1, guias: 2};
+      const ordem: Record<Secao, number> = {tapi: 0, entregas: 1, estudo: 2, guias: 3};
       pages.sort((a, b) => ordem[a.secao ?? 'guias'] - ordem[b.secao ?? 'guias'] || a.position - b.position);
       return {
         slug,
@@ -214,7 +220,7 @@ function load() {
         pages,
       };
     })
-    .sort(byPos);
+    .sort(byStatusAndPos);
 
   cache = {trilhas, projetos, pages: [...trilhas.flatMap((t) => t.pages), ...projetos.flatMap((p) => p.pages)]};
   return cache;
@@ -230,6 +236,7 @@ export const getPage = (slug: string) => load().pages.find((p) => p.slug === slu
 export const SECOES: {id: Secao; label: string; descricao: string}[] = [
   {id: 'tapi', label: 'TAPI', descricao: 'O termo de abertura: problema, objetivo, escopo e critérios.'},
   {id: 'entregas', label: 'Entregas', descricao: 'Cronograma, templates e o que cada entrega precisa ter.'},
+  {id: 'estudo', label: 'Material de estudo', descricao: 'Aulas e conteúdo escrito específico do negócio deste projeto.'},
   {id: 'guias', label: 'Guias', descricao: 'Materiais de apoio específicos deste projeto.'},
 ];
 

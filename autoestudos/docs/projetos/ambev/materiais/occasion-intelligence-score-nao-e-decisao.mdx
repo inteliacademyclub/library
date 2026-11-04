@@ -1,0 +1,196 @@
+---
+secao: estudo
+sidebar_position: 1
+sidebar_label: 'Score não é decisão'
+title: 'Occasion Intelligence: score não é decisão'
+description: 'As três camadas do case Ambev (modelo, Decision Engine e LLM), o que cada uma pode afirmar e por que o Occasion Score nunca escolhe a campanha.'
+---
+
+# Occasion Intelligence: o Score Responde "Quanto", o Engine Responde "O Quê"
+
+<LessonMeta
+  tempo="25 min"
+  etapa="dados"
+  objetivos={[
+    'Distinguir as três camadas do sistema: predição, Decision Engine e camada generativa',
+    'Explicar o que o Occasion Score afirma e o que ele não pode afirmar',
+    'Escrever uma regra do Decision Engine que seja testável e justificável',
+    'Reconhecer os pedidos que o TAPI deixa fora do escopo',
+  ]}
+  prerequisitos={[{label: 'Termo de abertura do case Ambev', to: '/projetos/ambev/tapi'}]}
+/>
+
+Uma regra fixa como "ative nas noites de sexta" funciona, até o dia em que não funciona. Sexta à noite em Campinas, com chuva, num bairro cheio de pizzarias com entrega, é um contexto. Sexta à noite numa cidade com poucas pizzarias, e com um público que quase não associa o Guaraná à pizza, é outro. A regra enxerga as duas como a mesma coisa.
+
+O case Ambev propõe trocar a regra fixa por **estimativa**: dia, horário, público, região, canal e histórico interagem, e um modelo pode aprender essas interações. Mas há uma armadilha logo na saída. Se o modelo devolve um número, é tentador deixar que o mesmo número escolha a campanha. Esta aula explica por que isso é um erro e como o TAPI separa o problema em três decisões.
+
+:::info[Ideia central]
+O **Occasion Score** responde "quão relevante é este contexto para a ocasião?". Ele **não decide qual campanha fazer**. Essa escolha pertence ao **Decision Engine**, que aplica regras explícitas e documentadas.
+:::
+
+---
+
+## As três camadas
+
+| Camada | Entrada | Saída | O que pode afirmar |
+| :--- | :--- | :--- | :--- |
+| **Occasion Prediction** | Contexto: dia, horário, público, região, canal, histórico | `occasion_score` | A propensão (ou a intensidade) de aquele contexto representar a ocasião |
+| **Decision Engine** | Score, contexto observado e fatores explicativos | Categoria de ativação e justificativa | Que, dado este score e este contexto, a categoria coerente é esta |
+| **Camada generativa (opcional)** | A decisão estruturada | Texto em linguagem natural | Só o que já está na decisão. Não calcula o score nem inventa fatores |
+
+Cada camada é testada e auditada separadamente. Se a recomendação parece estranha, você consegue dizer onde o problema está: o score estava errado, a regra estava mal escrita ou o texto distorceu a decisão.
+
+O fluxo completo, do TAPI: fontes de dados, base, features, modelo, Occasion Score e explicação, Decision Engine, aplicação.
+
+---
+
+## O que o Occasion Score significa
+
+O score é a saída principal do modelo. Seu significado depende da formulação:
+
+- **Classificação:** o score é a probabilidade estimada de a observação ser a ocasião, ou seja, a probabilidade de a classe positiva dado o contexto.
+- **Regressão:** o score é o valor previsto da intensidade da ocasião, ou uma transformação documentada dele.
+
+O TAPI exige que **o significado do score seja definido antes da avaliação**. Isso evita o vício de olhar os números depois e decidir o que eles "querem dizer". Escolher a unidade de análise e o target vem primeiro (veja [Unidade de análise e formulação do score](/projetos/ambev/materiais/unidade-de-analise-e-formulacao-do-score)).
+
+Um contexto de sexta à noite, com alto histórico de pizza, consumo doméstico e recorrência em delivery, tende a receber score alto. Um contexto de baixa afinidade, score menor. Note o que o score **não** diz: nada sobre o que fazer com esse contexto.
+
+---
+
+## O que o Decision Engine faz
+
+O Decision Engine é um conjunto de **regras explícitas** que ligam score, contexto e fatores a uma categoria de ativação. Os exemplos do TAPI:
+
+| Condição | Categoria |
+| :--- | :--- |
+| Score alto e forte presença de delivery | Ativação via delivery |
+| Score alto e consumo doméstico recorrente | Promoção, combo ou ação para consumo em casa |
+| Score relevante e segmento com baixa associação atual à marca | Awareness e construção de associação |
+
+Duas propriedades importam:
+
+1. **As regras ficam documentadas**, com a justificativa que será exibida junto da recomendação.
+2. **A recomendação é uma decisão por regras, não uma previsão.** Sem histórico de contexto, ação e resultado, não existe dado para treinar um modelo que escolha a melhor campanha. O sistema também não afirma causalidade nem que uma ação venderá mais que outra.
+
+<NoProjeto titulo="No projeto: dois contextos, duas decisões">
+Os cenários abaixo são **ilustrativos**, só para mostrar o encadeamento.
+
+- **Campinas, sexta, 20h, chuva:** score alto, delivery forte na região. A regra de delivery dispara e a recomendação é uma ativação via delivery, com a justificativa "score alto e forte presença de delivery".
+- **Recife, terça, 13h:** score baixo para a ocasião. Nenhuma regra de ativação dispara, e o sistema devolve que o contexto não é prioritário, também com justificativa.
+
+O modelo só produziu os dois scores. Quem transformou o score em categoria foi o Engine.
+</NoProjeto>
+
+---
+
+## Por que separar
+
+Se você deixa o score escolher a campanha, aparecem três problemas:
+
+- **Falta de dado.** Para treinar um modelo que escolhe campanhas é preciso histórico de ações e resultados, e o case não o tem.
+- **Opacidade.** Uma regra escrita pode ser lida, discutida e testada. Um modelo que "escolhe a campanha" esconde a razão.
+- **Alegação causal sem base.** Dizer que a ação A venderá mais que a B exige experimento. O TAPI deixa isso explicitamente fora do escopo.
+
+Separar também permite trocar uma camada sem refazer as outras. Se a regra de awareness mudar, o modelo não precisa ser treinado de novo.
+
+---
+
+## O papel do LLM
+
+A camada generativa é **opcional**. Ela recebe a decisão já estruturada (score, fatores, categoria e justificativa) e escreve um texto para a pessoa que vai ler. Dois limites:
+
+- Ela **não calcula** o score.
+- Ela **não inventa** fatores: só pode citar os que a camada analítica produziu.
+
+Esse é o mesmo princípio de [O LLM orquestra, o modelo prevê](/aulas/ml-preditivo-e-agentes/agente-preditivo-e-mcp/o-llm-orquestra-o-modelo-preve), da trilha geral. Para checar se o texto respeita o limite, veja [LLM-as-a-judge e G-Eval](/aulas/eval-driven-development/llm-as-a-judge-e-g-eval).
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de quem começa]
+1. **Usar o score como decisão.** "Score acima de 0,7, então ativa" esconde uma regra no meio do código. Escreva-a na tabela do Engine.
+2. **Usar o tipo de ativação como target.** O TAPI proíbe: o tipo de ativação nunca é o target.
+3. **Treinar um modelo para escolher a melhor campanha** sem histórico de ações e resultados. Está fora do escopo.
+4. **Afirmar causalidade.** "Esta ação aumentará as vendas" não é algo que o sistema pode dizer.
+5. **Deixar o LLM recalcular ou reinterpretar o score.** Ele comunica, não calcula.
+:::
+
+<Quiz
+  id="ambev-a1"
+  perguntas={[
+    {
+      pergunta: 'Qual camada decide que a categoria de ativação é "promoção ou combo para consumo em casa"?',
+      opcoes: [
+        {texto: 'O modelo de predição, ao produzir o Occasion Score', explicacao: 'O modelo só estima a propensão da ocasião. Ele não escolhe categoria.'},
+        {texto: 'O Decision Engine, aplicando regras sobre score, contexto e fatores', correta: true, explicacao: 'A escolha da categoria pertence ao Engine, com regras documentadas e justificativa.'},
+        {texto: 'A camada generativa, ao redigir o texto', explicacao: 'O LLM apenas comunica uma decisão já tomada. Ele não decide nem calcula.'},
+      ],
+    },
+    {
+      pergunta: 'O grupo quer treinar um classificador cujo alvo seja a "melhor campanha" para cada contexto, usando só dados de contexto. Qual é o problema?',
+      opcoes: [
+        {texto: 'Não há problema, é a forma mais direta de resolver o case', explicacao: 'O TAPI deixa isso fora do escopo.'},
+        {texto: 'Falta histórico de ações e resultados, e o tipo de ativação nunca é o target', correta: true, explicacao: 'Sem dados de ação e resultado não há como aprender qual campanha funciona. A recomendação deve ser uma decisão por regras.'},
+        {texto: 'O modelo seria lento demais', explicacao: 'Velocidade não é a questão. O problema é a ausência de dados que sustentem o alvo.'},
+      ],
+    },
+    {
+      pergunta: 'Quais afirmações o sistema **pode** fazer?',
+      multipla: true,
+      opcoes: [
+        {texto: 'Este contexto tem score alto para a ocasião', correta: true, explicacao: 'É exatamente o que o score mede.'},
+        {texto: 'Dado score alto e delivery forte, a categoria coerente é ativação via delivery', correta: true, explicacao: 'É uma decisão por regra, com justificativa.'},
+        {texto: 'Esta ativação venderá mais do que um combo', explicacao: 'Compara ações e alega impacto causal. Exige experimento e está fora do escopo.'},
+      ],
+    },
+    {
+      pergunta: 'Quando o significado do Occasion Score deve ser definido?',
+      opcoes: [
+        {texto: 'Depois de avaliar o modelo, olhando os números', explicacao: 'Isso permite escolher a interpretação que mais convém.'},
+        {texto: 'Antes da avaliação, junto da unidade de análise e do target', correta: true, explicacao: 'O TAPI exige que o significado seja definido antes da avaliação.'},
+        {texto: 'Só na hora de escrever o README', explicacao: 'Tarde demais: a avaliação já terá usado uma interpretação implícita.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: escreva três regras]
+Monte uma tabela com três regras do Decision Engine para o seu projeto. Para cada uma, escreva: condição sobre score e contexto, categoria de ativação, justificativa exibida ao usuário e um teste que a cubra.
+
+<details>
+<summary>Dica</summary>
+
+Comece pelos três exemplos do TAPI e substitua "alto", "forte" e "recorrente" por limiares ou categorias que você consiga calcular a partir das features. Se uma condição não puder ser calculada com os dados que você tem (por exemplo, "associação atual à marca"), registre isso como limitação em vez de inventar a variável.
+</details>
+:::
+
+---
+
+## Resumo
+
+- O **Occasion Score** mede a relevância do contexto para a ocasião. Seu significado é definido **antes da avaliação**.
+- O **Decision Engine** escolhe a categoria de ativação por **regras documentadas**, com justificativa.
+- A recomendação é uma **decisão por regras**, não uma segunda previsão, e o sistema **não afirma causalidade**.
+- O **LLM** é opcional e só comunica o que a camada analítica produziu.
+
+## Referências
+
+- [Termo de abertura do case Ambev](/projetos/ambev/tapi): seções "Como o sistema funciona" e "Decision Engine".
+- [O LLM orquestra, o modelo prevê](/aulas/ml-preditivo-e-agentes/agente-preditivo-e-mcp/o-llm-orquestra-o-modelo-preve): o mesmo princípio de separação.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [Rules of Machine Learning (Google)](https://developers.google.com/machine-learning/guides/rules-of-ml) *(em inglês)*: as regras práticas do Google para separar heurística, modelo e decisão; a regra 1 pede começar sem ML.
+- [Introduction to ML Problem Framing (Google)](https://developers.google.com/machine-learning/problem-framing) *(em inglês)*: curso curto sobre quando usar ML, como formular o problema e como definir sucesso.
+
+**Vídeos**
+
+- [Decision intelligence (Cassie Kozyrkov)](https://www.youtube.com/watch?v=xmwyTYAeAl4) *(em inglês)*: a diferença entre prever e decidir, da ex-cientista-chefe de decisão do Google.
+- [Making Friends with Machine Learning: The Entire Course](https://www.youtube.com/watch?v=1vkb7BCMQd0) *(em inglês)*: curso completo e sem fórmulas; útil para o vocabulário de modelo, rótulo e decisão.
+
+**Próxima aula:** [O target que não existe](/projetos/ambev/materiais/o-target-que-nao-existe): o que POF, Vigitel e delivery medem de fato, e por que a ativação nunca é o target.

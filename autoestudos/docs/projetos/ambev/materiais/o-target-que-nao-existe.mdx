@@ -1,0 +1,179 @@
+---
+secao: estudo
+sidebar_position: 2
+sidebar_label: 'O target que não existe'
+title: 'O target que não existe: ground truth vs. proxy'
+description: 'O que POF, Vigitel e pedidos de delivery medem de fato, por que Google Trends nunca é target e por que o tipo de ativação nunca é target no case Ambev.'
+---
+
+# O Target que Não Existe: Ground Truth vs. Proxy
+
+<LessonMeta
+  tempo="35 min"
+  etapa="dados"
+  objetivos={[
+    'Explicar por que nenhuma fonte aberta entrega diretamente a ocasião Pizza + Guaraná',
+    'Distinguir ground truth, feature de contexto e proxy de interesse',
+    'Dizer o que cada candidato a target (POF, Vigitel, delivery) permite prever de fato',
+    'Aplicar os quatro critérios do TAPI para um target defensável',
+  ]}
+  prerequisitos={[
+    {label: 'Score não é decisão', to: '/projetos/ambev/materiais/occasion-intelligence-score-nao-e-decisao'},
+    {label: 'Anatomia de um problema supervisionado', to: '/aulas/ml-preditivo-e-agentes/formulacao-e-dados/anatomia-de-um-problema-supervisionado'},
+  ]}
+/>
+
+Em muitos cases de ML, a pergunta "qual é o target?" tem resposta óbvia: a coluna que já existe na base. No case Ambev, essa coluna não existe. O TAPI diz com clareza: **não há base nacional recente que registre diretamente cada ocasião Pizza + Guaraná**. Construir e documentar a base faz parte do desafio.
+
+Isso muda o peso das decisões. Escolher o target é a decisão mais importante do projeto, porque ela define o que o modelo passa a prever de verdade. Esta aula mostra as opções e o que cada uma custa.
+
+:::info[Definições]
+- **Ground truth:** medida observada da ocasião (ou de algo muito próximo), usada como target. Exemplo: pedidos de delivery, POF, Vigitel.
+- **Feature contextual ou territorial:** informação que descreve o contexto e entra como entrada do modelo. Exemplo: clima, Censo, densidade de pizzarias.
+- **Proxy de interesse:** sinal que sugere interesse, não consumo. Exemplo: Google Trends. **Nunca é tratado como consumo real.**
+:::
+
+---
+
+## O que cada fonte mede de fato
+
+| Fonte | Papel no TAPI | O que mede | O que **não** mede |
+| :--- | :--- | :--- | :--- |
+| **POF 2017-2018** (IBGE) | Ground truth | Consumo alimentar pessoal: 2 recordatórios de 24 h, 46.164 pessoas acima de 10 anos. Pizza e refrigerante estão entre os itens mais consumidos fora de casa (Rev. Saúde Pública, 2021) | Granularidade semanal. É uma foto de 2017-2018 |
+| **Vigitel** (Ministério da Saúde) | Ground truth parcial | Refrigerante em 5 ou mais dias por semana; 27 capitais; 21.690 entrevistas em 2023 | Pizza. Cobre só capitais, com resultado anual |
+| **Pedidos de delivery** | Ground truth (exemplo) | O único ground truth com dia e horário | Não é público: exige parceiro ou base aberta de terceiros |
+| **Google Trends** | Proxy de interesse | Interesse relativo (0 a 100) por UF e período | Consumo. Buscas medem interesse |
+
+Duas consequências aparecem na tabela:
+
+- **Cada fonte responde a uma pergunta diferente.** POF responde "quem consome o quê"; Vigitel responde "quanto refrigerante, por capital"; delivery responde "quando alguém pediu".
+- **Nenhuma fonte aberta junta pizza, Guaraná, dia e município.** Qualquer target é uma aproximação, e a aproximação precisa ser declarada.
+
+---
+
+## O que o modelo passa a prever
+
+Trocar o target troca a pergunta. As três formulações abaixo são **candidatas**, não uma recomendação fechada:
+
+| Formulação | Target | O modelo passa a prever | Limite principal |
+| :--- | :--- | :--- | :--- |
+| **A. Delivery de parceiro** | Pedidos com pizza e refrigerante, com dia e hora | A ocorrência da ocasião em pedidos | Dado não público. Sem parceiro autorizado, não há base |
+| **B. Afinidade por perfil e região** | Consumo de pizza e refrigerante vindo de POF ou Vigitel | A afinidade de um perfil ou de uma capital com a ocasião | Sem série temporal semanal. Não captura "sexta às 20h" |
+| **C. Interesse por busca** | Google Trends | O interesse relativo por busca | **Proibido como target.** Interesse não é consumo |
+
+Se não houver pedidos de delivery acessíveis, a unidade de análise mais defensável tende a ser **município por período**, com target vindo de POF ou Vigitel. Isso muda o que você pode prometer: o sistema estimaria afinidade territorial, não a probabilidade de uma noite específica. Diga isso com todas as letras no Data Card.
+
+:::warning[Pergunta em aberto do case]
+Existe alguma base pública de pedidos de delivery com data e hora no Brasil? Ao escrever estes materiais, não há resposta confirmada. Antes de assumir que existe, pesquise e registre a fonte; se não existir, a formulação B é a rota defensável.
+:::
+
+---
+
+## Por que a ativação nunca é target
+
+O tipo de ativação (delivery, combo, awareness) é o que o **Decision Engine** devolve. Usá-lo como target seria treinar um modelo para reproduzir uma regra, ou para escolher campanha sem histórico de ações e resultados. O TAPI deixa as duas coisas explicitamente fora de escopo. O target mede a **ocasião**; a ativação é a **resposta** a ela.
+
+---
+
+## Os quatro critérios do TAPI para um target defensável
+
+O target precisa:
+
+1. Ter **significado de negócio**.
+2. Estar **disponível de forma consistente**.
+3. **Não depender de informação futura.**
+4. Ter **limitações documentadas**.
+
+E duas proibições:
+
+- **Não se cria target artificial.**
+- **Se nenhuma fonte sustentar um target defensável, a formulação é revista antes da modelagem.**
+
+A segunda proibição é um alívio: voltar atrás na formulação não é fracasso, é a regra.
+
+<NoProjeto titulo="No projeto: de onde vem o rótulo de Campinas, sexta, 20h">
+Para dizer que "Campinas, sexta, 20h, chuva" é uma ocasião positiva, você precisa de uma observação dessa ocasião. Com um parceiro de delivery, o rótulo vem de pedidos naquele dia e horário. Sem parceiro, ele não existe nessa granularidade: o que a POF ou o Vigitel permitem é dizer que o **perfil** daquela região tem alta afinidade com pizza e refrigerante. São perguntas diferentes, e o Data Card precisa dizer qual delas você está respondendo.
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de target]
+1. **Tratar Trends como consumo.** Uma alta de buscas é interesse. Ela pode entrar como feature de contexto, nunca como target.
+2. **Prometer granularidade que a fonte não tem.** Dizer "probabilidade na sexta às 20h" com target vindo de POF não se sustenta.
+3. **Fabricar um target** (por exemplo, simular pedidos) e apresentá-lo como medida real. O TAPI proíbe.
+4. **Esconder a limitação.** Todo target tem limite. Escrevê-lo no Data Card é parte do trabalho.
+5. **Misturar períodos incompatíveis** como se fossem a mesma observação, ao juntar target e features.
+:::
+
+<Quiz
+  id="ambev-a2"
+  perguntas={[
+    {
+      pergunta: 'Um grupo usa o índice do Google Trends para "pizza com guaraná" por UF como variável a prever. O que está errado?',
+      opcoes: [
+        {texto: 'Nada, Trends é uma boa medida de consumo', explicacao: 'Buscas medem interesse, não consumo real.'},
+        {texto: 'Trends é proxy de interesse e o TAPI proíbe usá-lo como target', correta: true, explicacao: 'Proxy de interesse entra, no máximo, como feature de contexto.'},
+        {texto: 'O Trends só tem dados dos últimos meses', explicacao: 'Esse não é o argumento do TAPI. A regra é sobre o papel da fonte.'},
+      ],
+    },
+    {
+      pergunta: 'O grupo usa a POF como target. Qual promessa o sistema **não** pode fazer?',
+      opcoes: [
+        {texto: 'Estimar a afinidade de perfis com pizza e refrigerante', explicacao: 'É exatamente o que a POF sustenta.'},
+        {texto: 'Estimar a probabilidade da ocasião numa sexta específica às 20h', correta: true, explicacao: 'A POF não tem granularidade semanal. Essa promessa exigiria dado com dia e horário.'},
+        {texto: 'Documentar que o dado é de 2017-2018', explicacao: 'Isso é uma obrigação do Data Card, não uma promessa indevida.'},
+      ],
+    },
+    {
+      pergunta: 'Nenhuma das fontes disponíveis sustenta um target com significado de negócio. O que o TAPI manda fazer?',
+      opcoes: [
+        {texto: 'Criar um target artificial a partir das features', explicacao: 'O TAPI diz que não se cria target artificial.'},
+        {texto: 'Rever a formulação antes da modelagem', correta: true, explicacao: 'É a regra do TAPI quando nenhuma fonte sustenta um target defensável.'},
+        {texto: 'Usar o tipo de ativação como target', explicacao: 'O tipo de ativação nunca é o target.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: tabela de candidatos]
+Preencha uma linha para cada target candidato do seu projeto, com as colunas: fonte, significado de negócio, disponibilidade, depende de informação futura (sim ou não) e limitação. Descarte qualquer linha que fira um dos quatro critérios.
+
+<details>
+<summary>Dica</summary>
+
+Uma boa limitação é concreta e verificável: "dado de 2017-2018, sem série semanal" ou "só 27 capitais". Evite limitações vagas como "os dados podem ter vieses".
+</details>
+:::
+
+---
+
+## Resumo
+
+- Não existe base que registre diretamente a ocasião: o **target é uma aproximação** e precisa ser declarado.
+- **POF, Vigitel e delivery** são candidatos a ground truth, cada um com um limite; **Trends é proxy** e nunca é target.
+- O **tipo de ativação nunca é target**.
+- Um target defensável tem **significado de negócio, disponibilidade consistente, nenhuma informação futura e limitações documentadas**.
+- Se nenhuma fonte sustentar, **revise a formulação** antes de modelar.
+
+## Referências
+
+- [Termo de abertura do case Ambev](/projetos/ambev/tapi): seção "Dados e formulação do problema".
+- [Fontes e APIs do case](/projetos/ambev/materiais/guia-de-fontes-e-apis): papel e limites de cada fonte.
+- [Anatomia de um problema supervisionado](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/anatomia-de-um-problema-supervisionado): a base conceitual de target, unidade e instante de previsão.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [POF 2017-2018: Análise do Consumo Alimentar Pessoal no Brasil (IBGE)](https://biblioteca.ibge.gov.br/visualizacao/livros/liv101742.pdf): a publicação de onde vem o ground truth de consumo; leia a metodologia dos recordatórios de 24 h.
+- [Vigitel Brasil 2023 (Ministério da Saúde)](https://www.gov.br/saude/pt-br/centrais-de-conteudo/publicacoes/svsa/vigitel/vigitel-brasil-2023-vigilancia-de-fatores-de-risco-e-protecao-para-doencas-cronicas-por-inquerito-telefonico/view): o relatório anual; o indicador de refrigerante está no capítulo de consumo alimentar.
+
+**Vídeos**
+
+- [The Problem with Metrics, Feedback Loops, and Hypergrowth](https://www.youtube.com/watch?v=bqCEUQq0z4o) *(em inglês)*: por que otimizar uma métrica que é só um proxy leva a decisões ruins (Lei de Goodhart).
+
+**Próxima aula:** [Unidade de análise e formulação do score](/projetos/ambev/materiais/unidade-de-analise-e-formulacao-do-score): escolher a unidade e escrever o que o score significa.

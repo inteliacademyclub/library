@@ -1,0 +1,201 @@
+---
+secao: estudo
+sidebar_position: 8
+sidebar_label: 'Baseline e Occasion Score'
+title: 'Baseline "sexta à noite" e Occasion Score'
+description: 'Como construir o baseline obrigatório do TAPI (frequência histórica por dia e período), compará-lo a um modelo em validação temporal e ler o Occasion Score.'
+---
+
+# Baseline "Sexta à Noite": o que o Modelo Precisa Provar
+
+<LessonMeta
+  tempo="40 min"
+  etapa={['modelo', 'avaliacao']}
+  objetivos={[
+    'Construir o baseline de frequência histórica por dia da semana e período',
+    'Evitar leakage ao calcular o baseline só com o período de treino',
+    'Comparar baseline e modelo em um split temporal com PR-AUC, ROC-AUC e Brier',
+    'Decidir se o modelo aprendeu algo além de "sexta à noite é bom para pizza"',
+  ]}
+  prerequisitos={[
+    {label: 'Baselines', to: '/aulas/ml-preditivo-e-agentes/avaliacao-honesta/baselines'},
+    {label: 'EDA da ocasião e features de contexto', to: '/projetos/ambev/materiais/eda-da-ocasiao-e-features-de-contexto'},
+  ]}
+/>
+
+O TAPI exige um baseline "que funcionaria sem Machine Learning", e dá o exemplo: a **frequência histórica por dia da semana e período do dia**. Ele existe para responder a uma pergunta incômoda: o modelo aprende algo além de "sexta à noite é bom para pizza"? Se um modelo complexo não bate uma tabela de médias, ele não justifica a complexidade.
+
+:::info[Ideia central]
+O baseline não é um adversário fraco: é o **piso honesto**. Um modelo só merece existir se superar o baseline em validação temporal, nas métricas que importam para o negócio.
+:::
+
+---
+
+## Como funciona o baseline
+
+Para cada combinação de dia da semana e período, o baseline é a **proporção histórica de ocasiões**. O Occasion Score do baseline é essa proporção.
+
+Três cuidados:
+
+1. **Calcule só com o treino.** Usar o período de teste para calcular as médias é leakage.
+2. **Defina um valor para combinações sem histórico.** O exemplo usa a média geral do treino.
+3. **Use o mesmo split temporal do modelo.** Treino em períodos anteriores, teste em posteriores.
+
+---
+
+## Baseline contra modelo
+
+O trecho abaixo usa dados **sintéticos**, gerados com uma interação entre chuva e noites de fim de semana e um efeito do delivery. O modelo vê informações que o baseline não vê, então a comparação mostra o que o modelo consegue acrescentar quando existe sinal além do calendário.
+
+```python
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.metrics import average_precision_score, roc_auc_score, brier_score_loss
+
+rng = np.random.default_rng(11)
+n = 40_000
+d = pd.DataFrame({
+    "data": pd.date_range("2024-01-01", periods=n, freq="h"),
+})
+d["dia_semana"] = d.data.dt.day_of_week
+d["periodo"] = pd.cut(d.data.dt.hour, [-1, 11, 17, 23], labels=["manha", "tarde", "noite"]).astype(str)
+d["chuva"] = (rng.random(n) < 0.25).astype(int)
+d["delivery_forte"] = (rng.random(n) < 0.4).astype(int)
+fds_noite = d.dia_semana.isin([4, 5, 6]) & (d.periodo == "noite")
+logit = -3.5 + 1.2 * fds_noite + 1.0 * (d.chuva & fds_noite) + 0.9 * d.delivery_forte
+d["y"] = (rng.random(n) < 1 / (1 + np.exp(-logit))).astype(int)   # dados sintéticos
+
+corte = d.data.quantile(0.7)
+treino, teste = d[d.data <= corte], d[d.data > corte]
+
+# Baseline: frequência histórica por dia da semana x período, calculada SÓ no treino.
+freq = treino.groupby(["dia_semana", "periodo"])["y"].mean().rename("score_base")
+base = teste.join(freq, on=["dia_semana", "periodo"])["score_base"].fillna(treino.y.mean())
+
+def metricas(y, s):
+    return {"pr_auc": round(average_precision_score(y, s), 3),
+            "roc_auc": round(roc_auc_score(y, s), 3),
+            "brier": round(brier_score_loss(y, s), 4)}
+
+print("baseline", metricas(teste.y, base))
+
+X = ["dia_semana", "chuva", "delivery_forte"]
+X_tr = treino[X].assign(noite=(treino.periodo == "noite").astype(int))
+X_te = teste[X].assign(noite=(teste.periodo == "noite").astype(int))
+m = HistGradientBoostingClassifier(random_state=0).fit(X_tr, treino.y)
+print("modelo  ", metricas(teste.y, m.predict_proba(X_te)[:, 1]))
+```
+
+A saída obtida com a semente do exemplo:
+
+```text
+baseline {'pr_auc': 0.097, 'roc_auc': 0.597, 'brier': 0.0526}
+modelo   {'pr_auc': 0.146, 'roc_auc': 0.674, 'brier': 0.0513}
+```
+
+Como ler:
+
+- **ROC-AUC** (0,597 contra 0,674) mede a capacidade de ordenar contextos: o modelo ordena melhor.
+- **PR-AUC** (0,097 contra 0,146) importa quando a ocasião é rara, porque pune falsos positivos.
+- **Brier** (0,0526 contra 0,0513) mede a qualidade das probabilidades: quanto menor, melhor. A diferença é pequena, e um score só deve ser lido como probabilidade depois de verificar a calibração.
+
+Esses números são de dados sintéticos e **não dizem nada sobre o case real**. O que importa é o procedimento: o mesmo corte temporal, as mesmas métricas e a comparação direta.
+
+---
+
+## Qual métrica manda
+
+O TAPI pede que a métrica principal seja justificada pelo **custo dos erros**:
+
+- um **falso positivo** gera uma ativação pouco relevante;
+- um **falso negativo** deixa passar uma ocasião relevante.
+
+Se ativar custa pouco e perder a ocasião custa muito, priorize **recall**. Se cada ativação é cara, priorize **precision**. Com a ocasião rara, **PR-AUC** é mais informativa que acurácia, e o limiar de decisão deve ser escolhido nessa curva.
+
+<NoProjeto titulo="No projeto: sexta à noite em Campinas">
+O baseline dá a "Campinas, sexta, 20h" o mesmo score de qualquer sexta à noite, chova ou não. O modelo diferencia as duas situações pelo clima e pelo delivery. Se o modelo real não conseguir superar o baseline por uma margem relevante, a conclusão honesta é que, **com estes dados**, o calendário explica quase tudo. Isso é um resultado, e deve aparecer no README e no vídeo.
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de baseline]
+1. **Calcular as médias com todos os dados**, inclusive o teste.
+2. **Baseline mais fraco do que o necessário** (por exemplo, a média global), que torna qualquer modelo "melhor".
+3. **Comparar com splits diferentes.** Baseline e modelo precisam do mesmo corte.
+4. **Reportar só ROC-AUC com ocasião rara.** Mostre também PR-AUC e o desempenho por segmento.
+5. **Ler o score como probabilidade sem calibrar.** Verifique a calibração antes de chamar de probabilidade.
+:::
+
+<Quiz
+  id="ambev-a8"
+  perguntas={[
+    {
+      pergunta: 'Onde se calcula a frequência histórica por dia e período do baseline?',
+      opcoes: [
+        {texto: 'Em todos os dados, para ter a estimativa mais precisa', explicacao: 'Usar o teste para calcular o baseline é leakage.'},
+        {texto: 'Só no período de treino', correta: true, explicacao: 'O baseline precisa respeitar o mesmo corte temporal do modelo.'},
+        {texto: 'No período de teste, para ser o mais justo', explicacao: 'Seria avaliar o baseline com a resposta.'},
+      ],
+    },
+    {
+      pergunta: 'O modelo tem ROC-AUC levemente maior que o baseline, mas PR-AUC igual. O que fazer?',
+      opcoes: [
+        {texto: 'Declarar vitória, porque o ROC-AUC é maior', explicacao: 'Com ocasião rara, a PR-AUC reflete melhor os falsos positivos.'},
+        {texto: 'Investigar por segmento e reportar que o ganho é pequeno, sem exagerar', correta: true, explicacao: 'Um ganho pequeno e honesto é melhor que uma vitória inflada.'},
+        {texto: 'Remover a PR-AUC do relatório', explicacao: 'Esconder uma métrica desfavorável é o oposto do que o TAPI pede.'},
+      ],
+    },
+    {
+      pergunta: 'Ativar uma campanha é barato, e perder uma ocasião relevante é caro. Qual métrica priorizar?',
+      opcoes: [
+        {texto: 'Recall', correta: true, explicacao: 'Priorizar recall reduz os falsos negativos, que são o erro caro.'},
+        {texto: 'Precision', explicacao: 'Precision protege contra falsos positivos, que aqui são o erro barato.'},
+        {texto: 'Nenhuma, o custo não importa', explicacao: 'O TAPI pede que a métrica seja justificada pelo custo dos erros.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: seu baseline]
+Calcule o baseline de dia da semana e período nos seus dados, só com o treino, e avalie no teste com PR-AUC e ROC-AUC. Depois treine um modelo e compare. Escreva três linhas dizendo o que o modelo acrescenta.
+
+<details>
+<summary>Dica</summary>
+
+Se o modelo não supera o baseline, tente um baseline ainda mais forte (por exemplo, por região, dia e período) antes de concluir qualquer coisa. Um baseline forte torna o resultado mais confiável nos dois sentidos.
+</details>
+:::
+
+---
+
+## Resumo
+
+- O **baseline** é a frequência histórica por dia da semana e período, calculada **só com o treino**.
+- Ele é o **piso honesto**: o modelo precisa superá-lo em validação temporal.
+- Compare com **PR-AUC, ROC-AUC e Brier**, e justifique a métrica principal pelo **custo dos erros**.
+- Um ganho pequeno é um resultado válido e deve ser **reportado sem exagero**.
+
+## Referências
+
+- [Baselines](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/baselines) e [Validação temporal e por canal](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/validacao-temporal-e-por-canal): o conceito geral.
+- [Unidade de análise e formulação do score](/projetos/ambev/materiais/unidade-de-analise-e-formulacao-do-score): o significado do score que o baseline também produz.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [scikit-learn: DummyClassifier](https://scikit-learn.org/stable/modules/generated/sklearn.dummy.DummyClassifier.html) *(em inglês)*: baselines prontos (mais frequente, estratificado, prior).
+- [scikit-learn: métricas de classificação](https://scikit-learn.org/stable/modules/model_evaluation.html#classification-metrics) *(em inglês)*: precision, recall, PR-AUC e ROC-AUC.
+- [scikit-learn: TimeSeriesSplit](https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.TimeSeriesSplit.html) *(em inglês)*: validação que respeita a ordem do tempo.
+
+**Vídeos**
+
+- [ROC and AUC, Clearly Explained (StatQuest)](https://www.youtube.com/watch?v=4jRBRDbJemM) *(em inglês)*: como ler a curva ROC e o que a AUC resume.
+- [Machine Learning Fundamentals: Sensitivity and Specificity (StatQuest)](https://www.youtube.com/watch?v=vP06aMoz4v8) *(em inglês)*: os dois tipos de erro da matriz de confusão.
+
+**Próxima aula:** [Decision Engine: tabela de regras testável](/projetos/ambev/materiais/decision-engine-tabela-de-regras-testavel): transformar o score em uma categoria de ativação.

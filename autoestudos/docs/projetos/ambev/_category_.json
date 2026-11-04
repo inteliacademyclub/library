@@ -1,0 +1,10 @@
+{
+  "label": "Ambev",
+  "position": 6,
+  "titulo": "Occasion Intelligence: Pizza + Guaraná Antarctica",
+  "parceiro": "Ambev",
+  "status": "em-andamento",
+  "periodo": "A definir",
+  "resumo": "Estimar em quais contextos a ocasião Pizza + Guaraná Antarctica é mais provável e transformar essa estimativa em recomendações estruturadas de ativação, com modelo, Occasion Score, Decision Engine e aplicação funcional.",
+  "trilha": "/aulas/ml-preditivo-e-agentes"
+}

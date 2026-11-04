@@ -1,0 +1,195 @@
+---
+secao: estudo
+sidebar_position: 4
+sidebar_label: 'Instante de previsão'
+title: 'Instante de previsão com dados de contexto'
+description: 'Como declarar o instante de previsão e decidir quais features de clima, Google Trends, feriados e território estão disponíveis nele, evitando data leakage no case Ambev.'
+---
+
+# Instante de Previsão com Dados de Contexto
+
+<LessonMeta
+  tempo="35 min"
+  etapa={['dados', 'avaliacao']}
+  objetivos={[
+    'Declarar o instante de previsão e o horizonte do projeto',
+    'Classificar cada feature de contexto como disponível ou vazada nesse instante',
+    'Escolher entre clima observado e clima previsto',
+    'Escrever uma checagem automática de disponibilidade',
+  ]}
+  prerequisitos={[
+    {label: 'Unidade de análise e formulação do score', to: '/projetos/ambev/materiais/unidade-de-analise-e-formulacao-do-score'},
+    {label: 'Vazamento de dados', to: '/aulas/ml-preditivo-e-agentes/avaliacao-honesta/vazamento-de-dados'},
+  ]}
+/>
+
+O clima da sexta à noite ajuda a prever a ocasião Pizza + Guaraná: chuva e frio empurram as pessoas para dentro de casa. O problema é **quando** você faz a previsão. Se ela é feita na quinta, o clima de sexta ainda não aconteceu. Treinar o modelo com a temperatura **observada** na sexta e usá-lo, na prática, com a **previsão** de quinta é um clássico caso de data leakage: o modelo aprende com uma informação que não existirá quando for usado.
+
+O TAPI pede que o grupo **declare o instante de previsão** e que toda feature esteja disponível até ele. O mesmo processamento vale para treino e inferência.
+
+:::info[Definição]
+O **instante de previsão** é o momento em que o sistema faz a previsão. O **horizonte** é a distância até o evento previsto. Uma feature só é válida se o valor que você usa no treino for o mesmo que existiria no instante de previsão.
+:::
+
+---
+
+## Classificando as features do case
+
+A pergunta para cada feature é: **esse valor já existia no instante de previsão?**
+
+| Feature | Fonte | Disponível antes do evento? | Observação |
+| :--- | :--- | :--- | :--- |
+| Dia da semana, horário | Calendário | Sim | Conhecido de antemão |
+| Feriado nacional | BrasilAPI | Sim | Publicado com antecedência. Só cobre feriados nacionais |
+| Perfil territorial (renda, população, domicílios) | IBGE SIDRA (Censo 2022) | Sim | Dado estático: trate como foto, não como série |
+| Densidade de pizzarias | Overpass / OSM | Depende | Use um snapshot datado, anterior ao instante de previsão |
+| Clima **previsto** | Open-Meteo Previous Runs (`_previous_day1`, `_previous_day2`…) | Sim, com a antecedência certa | Guarda o valor previsto 1 a 7 dias antes de cada horário. Na maioria dos modelos, só existe desde jan/2024 |
+| Clima **observado** | Open-Meteo (ERA5), INMET | **Não**, se a previsão é anterior ao dia | Reanálise e medição só existem depois do evento |
+| Google Trends da **mesma semana** | Trends | **Não**, se a semana ainda não terminou | Interesse relativo da semana alvo não existe antes dela |
+
+As fontes de clima servem a propósitos diferentes. O Open-Meteo com ERA5 tem histórico desde 1940, mas é clima observado e vaza se o instante de previsão for anterior ao dia. A **Previous Runs API** guarda, para cada horário, o valor previsto 1 a 7 dias antes: `temperature_2m_previous_day1` é a previsão emitida 24 horas antes. É ela que reconstrói o que se sabia no instante de previsão, mas, na maioria dos modelos, o histórico só começa em janeiro de 2024.
+
+Cuidado com a **Historical Forecast API**: apesar do nome, ela emenda só as primeiras horas de cada rodada do modelo. Por isso, ela se comporta quase como clima observado e **não** representa a previsão feita 24 horas antes. Documente a escolha e a limitação no Data Card.
+
+---
+
+## Uma checagem automática
+
+Em vez de revisar features no olho, declare quando cada uma passa a existir e deixe o código comparar com o horizonte. Os valores de antecedência abaixo são **ilustrativos**: confirme-os na fonte de cada uma.
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Feature:
+    nome: str
+    fonte: str
+    antecedencia_h: float  # com quantas horas de antecedência o valor existe (ilustrativo)
+
+CATALOGO = [
+    Feature("feriado_nacional", "BrasilAPI", 24 * 365),
+    Feature("dia_da_semana", "calendário", 24 * 365),
+    Feature("renda_media_municipio", "IBGE SIDRA (Censo 2022)", 24 * 365),
+    Feature("n_pizzarias_osm", "OSM/Overpass (snapshot datado)", 24 * 30),
+    Feature("temperatura_prevista", "Open-Meteo Previous Runs", 36),
+    Feature("temperatura_observada", "Open-Meteo (ERA5)", 0),
+    Feature("trends_da_mesma_semana", "Google Trends", 0),
+]
+
+def vazam(catalogo, horizonte_h):
+    """Features que ainda não existiriam no instante de previsão."""
+    return [f.nome for f in catalogo if f.antecedencia_h < horizonte_h]
+
+# Previsão na quinta, 20h, para a sexta, 20h: horizonte de 24 h.
+print(vazam(CATALOGO, horizonte_h=24))
+# ['temperatura_observada', 'trends_da_mesma_semana']
+
+# Se o horizonte subir para 48 h, a previsão do tempo de 36 h também deixa de servir.
+print(vazam(CATALOGO, horizonte_h=48))
+# ['temperatura_prevista', 'temperatura_observada', 'trends_da_mesma_semana']
+```
+
+O segundo resultado mostra um efeito importante: **a lista de features válidas depende do horizonte**. Se o projeto prevê com 48 horas de antecedência, a previsão do tempo de 36 horas também não pode entrar. No Open-Meteo, isso significa trocar `_previous_day1` por `_previous_day2`.
+
+Transforme isso em teste com `pytest`: uma função que falha se alguma feature do modelo estiver em `vazam(CATALOGO, horizonte_h)`. Assim o vazamento vira uma falha de CI, não uma surpresa no vídeo.
+
+<NoProjeto titulo="No projeto: sexta, 20h, chuva">
+Para prever "Campinas, sexta, 20h, chuva" com horizonte de 24 horas, o campo "chuva" precisa vir da **previsão** feita na quinta, e não da chuva que de fato caiu. No treino, use a Previous Runs API com `_previous_day1` (a previsão emitida 24 horas antes) para reconstruir o que se sabia na época. Se você treinar com ERA5 e inferir com previsão, o modelo foi avaliado numa situação mais favorável do que a real, e as métricas ficam otimistas.
+</NoProjeto>
+
+---
+
+## O mesmo processamento no treino e na inferência
+
+O TAPI pede que o **mesmo processamento valha para treino e inferência**. Na prática:
+
+- escreva a função de features uma vez e use-a nos dois caminhos;
+- ao treinar, calcule cada feature como ela seria vista no instante de previsão (por exemplo, com um corte de data);
+- guarde snapshots datados das fontes que mudam, como o OSM, para reconstruir o passado.
+
+Isso conecta com a validação: o split deve ser temporal, com treino em períodos anteriores e teste em posteriores, e cada linha deve usar só informação disponível até o seu próprio instante.
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de contexto]
+1. **Usar o clima observado do dia** quando a previsão é feita antes dele.
+2. **Usar Trends da mesma semana** do evento para prever o evento.
+3. **Usar o OSM de hoje** para explicar um período passado, sem snapshot datado.
+4. **Treinar com uma fonte e inferir com outra** (observado no treino, previsto na inferência).
+5. **Não declarar o horizonte.** Sem ele, ninguém consegue dizer qual feature vaza.
+:::
+
+<Quiz
+  id="ambev-a4"
+  perguntas={[
+    {
+      pergunta: 'A previsão é feita com 24 horas de antecedência. Qual feature de clima é válida?',
+      opcoes: [
+        {texto: 'Temperatura observada no horário do evento (ERA5)', explicacao: 'Só existe depois do evento. É vazamento.'},
+        {texto: 'Temperatura prevista, como a previsão que existia 24 horas antes', correta: true, explicacao: 'É o que se sabia no instante de previsão. A Previous Runs API (`_previous_day1`) reconstrói isso.'},
+        {texto: 'Média de temperatura do dia seguinte, calculada depois', explicacao: 'Também usa informação posterior ao instante de previsão.'},
+      ],
+    },
+    {
+      pergunta: 'Por que o perfil do Censo 2022 (SIDRA) não é um problema de vazamento?',
+      opcoes: [
+        {texto: 'Porque é um dado estático, anterior ao instante de previsão', correta: true, explicacao: 'O Censo 2022 já existia. É uma foto, e não deve ser tratado como série temporal.'},
+        {texto: 'Porque o IBGE é uma fonte oficial', explicacao: 'A origem oficial não garante disponibilidade no instante certo.'},
+        {texto: 'Porque territorial nunca vaza', explicacao: 'Depende da data de publicação. Dados territoriais também podem vazar se forem posteriores à previsão.'},
+      ],
+    },
+    {
+      pergunta: 'O horizonte do projeto passa de 24 para 48 horas. O que acontece com uma feature disponível 36 horas antes?',
+      opcoes: [
+        {texto: 'Continua válida', explicacao: 'Ela só passa a existir 36 horas antes, mas a previsão agora é feita 48 horas antes.'},
+        {texto: 'Deixa de ser válida, pois não existia no instante de previsão', correta: true, explicacao: 'A lista de features válidas depende do horizonte.'},
+        {texto: 'Passa a valer mais', explicacao: 'Um horizonte maior só reduz o que está disponível.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: monte o seu catálogo]
+Liste todas as features do seu projeto com a fonte e a antecedência com que cada valor passa a existir. Declare o horizonte e rode uma checagem como a da aula. Qual feature sairia se o horizonte dobrasse?
+
+<details>
+<summary>Dica</summary>
+
+Se você não sabe com quanta antecedência uma fonte publica o dado, descubra antes de usá-la. Quando não for possível confirmar, trate a feature como não disponível e registre a dúvida no Data Card.
+</details>
+:::
+
+---
+
+## Resumo
+
+- O **instante de previsão** e o **horizonte** são declarados pelo grupo e valem para todas as features.
+- **Clima observado e Trends da mesma semana vazam** quando a previsão é anterior ao evento; use o **clima previsto** com a antecedência certa (Previous Runs API, `_previous_day1` para 24 horas).
+- A lista de features válidas **depende do horizonte**.
+- Uma **checagem automática** transforma vazamento em falha de teste.
+- O **mesmo processamento** vale para treino e inferência.
+
+## Referências
+
+- [Vazamento de dados](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/vazamento-de-dados) e [O tempo mente](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/o-tempo-mente): a base conceitual.
+- [Fontes e APIs do case](/projetos/ambev/materiais/guia-de-fontes-e-apis): papel e limites de Open-Meteo, INMET, BrasilAPI e Trends.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [Open-Meteo Previous Runs API](https://open-meteo.com/en/docs/previous-runs-api) *(em inglês)*: o valor previsto 1 a 7 dias antes de cada horário, para usar clima sem vazar o observado.
+- [Open-Meteo Historical Forecast API](https://open-meteo.com/en/docs/historical-forecast-api) *(em inglês)*: emenda as primeiras horas de cada rodada; serve como clima quase observado, não como previsão com antecedência.
+- [Open-Meteo Historical Weather API](https://open-meteo.com/en/docs/historical-weather-api) *(em inglês)*: o clima observado (reanálise ERA5), útil para EDA e não para prever antes do dia.
+- [scikit-learn: Common pitfalls](https://scikit-learn.org/stable/common_pitfalls.html) *(em inglês)*: a seção de vazamento de dados, com exemplos errados e certos.
+- [Leakage and the Reproducibility Crisis in ML-based Science](https://reproducible.cs.princeton.edu/) *(em inglês)*: o catálogo de tipos de vazamento de Kapoor e Narayanan (Princeton).
+
+**Vídeos**
+
+- [Intro to ML: How to Prevent Data Leakage and Build Efficient Workflows (Cainã Max Couto da Silva)](https://www.youtube.com/watch?v=jIFWwucfqvg) *(em inglês)*: como o vazamento aparece no pré-processamento e como pipelines evitam.
+
+**Próxima aula:** [Juntando granularidades no DuckDB](/projetos/ambev/materiais/juntando-granularidades-no-duckdb): montar o painel respeitando o instante de previsão.

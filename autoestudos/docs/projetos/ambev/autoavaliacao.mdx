@@ -1,0 +1,97 @@
+---
+secao: entregas
+sidebar_position: 4
+sidebar_label: 'Autoavaliação'
+title: 'Autoavaliação dos entregáveis'
+description: 'Checklist interativo dos entregáveis do case Ambev, para conferir antes da entrega.'
+---
+
+# Autoavaliação dos Entregáveis
+
+Use esta página para conferir o projeto antes de entregar. Os itens seguem os sete entregáveis do TAPI. O progresso fica salvo no seu navegador.
+
+---
+
+## 1 · Dataset, Data Card e pipeline
+
+<Checklist
+  id="aval-ambev-dados"
+  itens={[
+    'Unidade de análise definida e mantida em todo o pipeline',
+    {texto: 'Target com significado de negócio, sem informação futura e com limitações documentadas', detalhe: 'Sem target artificial. O tipo de ativação nunca é o target.'},
+    {texto: 'Data Card completo', detalhe: 'Unidade, target, dicionário, fontes e versões, regras de integração, anti-leakage, população coberta e excluída, vieses e limitações, licença e LGPD.'},
+    'Pipeline reprodutível de ingestão, integração e preparação',
+    'Proxies de interesse (Google Trends) tratados como contexto, nunca como consumo',
+  ]}
+/>
+
+## 2 · EDA e feature engineering
+
+<Checklist
+  id="aval-ambev-eda"
+  itens={[
+    'Padrões por dia, período, região e clima analisados',
+    'Features de calendário, clima, território e oferta',
+    'Interações entre variáveis exploradas',
+    'Toda feature disponível até o instante de previsão',
+  ]}
+/>
+
+## 3 · Occasion Prediction Model
+
+<Checklist
+  id="aval-ambev-modelo"
+  itens={[
+    'Baseline simples que funcionaria sem Machine Learning',
+    'Pelo menos um modelo de maior capacidade, com escolha sustentada por experimentos',
+    'Validação com componente temporal e split por região ou canal',
+    'Occasion Score com significado definido antes da avaliação',
+  ]}
+/>
+
+## 4 · Avaliação e interpretabilidade
+
+<Checklist
+  id="aval-ambev-avaliacao"
+  itens={[
+    'Métricas adequadas ao tipo de target, com a principal justificada pelo custo dos erros',
+    'Matriz de confusão e calibração, em classificação probabilística',
+    'Análise de erros e análise por segmentos',
+    'SHAP, feature importance ou permutation importance sobre o modelo',
+  ]}
+/>
+
+## 5 · Decision Engine
+
+<Checklist
+  id="aval-ambev-decisao"
+  itens={[
+    'Regras documentadas ligando score, contexto e fatores a uma categoria',
+    'Justificativa em cada recomendação',
+    'Sem afirmação de causalidade nem de que uma ação vende mais que outra',
+    'Regras cobertas por testes',
+  ]}
+/>
+
+## 6 · Aplicação funcional
+
+<Checklist
+  id="aval-ambev-app"
+  itens={[
+    'Entrada de contexto, score, fatores e recomendação funcionando',
+    {texto: 'Contrato com os seis campos de saída', detalhe: '`occasion_score`, `classification`, `top_factors`, `recommendation_category`, `recommendation_reason`, `model_metadata`.'},
+    'Camadas separadas: coleta, processamento, modelo, regras e interface',
+  ]}
+/>
+
+## 7 · Vídeo e README
+
+<Checklist
+  id="aval-ambev-video"
+  itens={[
+    {texto: 'Vídeo de até 5 minutos', detalhe: 'Critério eliminatório: sem ele, ou sem demonstrar o código real, a entrega técnica é anulada.'},
+    'Execução completa mostrada: entrada, Occasion Score e recomendação',
+    'Métricas, validação, fontes, unidade de análise, target e arquitetura apresentados',
+    'README com arquitetura, dados, metodologia, resultados, limitações e execução',
+  ]}
+/>

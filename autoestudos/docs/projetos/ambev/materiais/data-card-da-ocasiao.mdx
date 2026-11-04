@@ -1,0 +1,215 @@
+---
+secao: estudo
+sidebar_position: 7
+sidebar_label: 'Data Card da ocasião'
+title: 'Data Card da ocasião'
+description: 'Template com os nove itens que o TAPI exige para o Data Card do case Ambev, um exemplo preenchido e uma checagem automática de itens faltando.'
+---
+
+# Data Card da Ocasião: os Nove Itens do TAPI
+
+<LessonMeta
+  tempo="30 min"
+  etapa="dados"
+  objetivos={[
+    'Listar os nove itens exigidos pelo TAPI para o Data Card',
+    'Preencher cada item com informação concreta e verificável',
+    'Documentar limitações e vieses sem escondê-los',
+    'Checar automaticamente se algum item está faltando ou vazio',
+  ]}
+  prerequisitos={[
+    {label: 'Documentação, ética e termos', to: '/aulas/ml-preditivo-e-agentes/formulacao-e-dados/documentacao-etica-e-termos'},
+    {label: 'O target que não existe', to: '/projetos/ambev/materiais/o-target-que-nao-existe'},
+  ]}
+/>
+
+O Data Card é obrigatório no TAPI, e é o documento que permite a outra pessoa julgar se a sua base sustenta as conclusões. Ele não precisa ser longo. Precisa ser **concreto**: "dados do Vigitel 2023, 27 capitais" ajuda; "dados públicos de saúde" não.
+
+:::info[Definição]
+O **Data Card** descreve a base: o que ela mede, de onde vem, como foi montada, quem cobre, quem deixa de fora e o que ela não deve ser usada para afirmar.
+:::
+
+---
+
+## Os nove itens
+
+| # | Item | O que escrever |
+| :-- | :--- | :--- |
+| 1 | **Unidade de análise** | O que é uma linha: pedido, consumidor por período ou município por semana |
+| 2 | **Target** | O que foi medido, em qual fonte, e se é ground truth ou proxy de consumo, com a distância até a ocasião real. Proxy de interesse, como o Google Trends, nunca é target |
+| 3 | **Dicionário de variáveis** | Nome, tipo, fonte, granularidade e disponibilidade no instante de previsão |
+| 4 | **Fontes e versões** | Cada fonte com data de coleta e versão ou snapshot |
+| 5 | **Regras de integração** | Chaves de join e como cada granularidade foi tratada |
+| 6 | **Estratégia anti-leakage** | O instante de previsão e como cada feature respeita-o |
+| 7 | **População coberta e excluída** | Quem entra e quem fica de fora, e por quê |
+| 8 | **Vieses e limitações** | Onde a base distorce a realidade e o que isso impede de afirmar |
+| 9 | **Licença e LGPD** | Licença de cada fonte e cuidados com dados pessoais |
+
+---
+
+## Um exemplo preenchido
+
+O exemplo abaixo é **ilustrativo**. Ele mostra o nível de detalhe esperado, e as escolhas que contém não são uma recomendação para o seu projeto.
+
+```markdown
+## Unidade de análise
+
+Capital por ano. Cada linha descreve uma capital em um ano, como o resultado do Vigitel.
+
+## Target
+
+Proporção de adultos que consomem refrigerante cinco ou mais dias por semana (Vigitel).
+É ground truth parcial: mede refrigerante, não pizza, e só existe para capitais.
+
+## Dicionário de variáveis
+
+| variável | tipo | fonte | granularidade | disponível no instante t? |
+| temperatura_media_ano_anterior | float | Open-Meteo Historical Weather (ERA5) | hora, agregada ao ano anterior | sim |
+| renda_media | float | IBGE SIDRA, Censo 2022 | município, estático | sim |
+
+## Fontes e versões
+
+Vigitel 2023 (coletado em 2026-10-30); IBGE SIDRA, Censo 2022; Open-Meteo ERA5 de 2022 (coletado em 2026-10-30);
+OSM, snapshot de 2026-10-28, usado só na EDA porque é posterior ao instante de previsão.
+
+## Regras de integração
+
+Chave: código IBGE do município e ano. O clima horário é agregado para o ano anterior ao do target
+antes do join; o Censo entra como foto.
+
+## Estratégia anti-leakage
+
+Instante de previsão: 31 de dezembro do ano anterior ao do target. Só entram dados disponíveis até
+essa data: clima do ano anterior e Censo 2022. Um teste no CI falha se alguma feature tiver data
+posterior ao corte.
+
+## População coberta e excluída
+
+Cobre as 27 capitais. Exclui os municípios do interior, que não têm dado de target.
+
+## Vieses e limitações
+
+Não mede pizza. Resultado anual. Com 27 capitais por ano, há poucas linhas para modelos complexos. Não permite afirmar
+probabilidade de ocasião numa noite específica.
+
+## Licença e LGPD
+
+Fontes públicas agregadas, sem dado pessoal. Conferir a licença de cada fonte antes de redistribuir.
+```
+
+Repare em três coisas: cada item tem **números ou nomes verificáveis**; as limitações dizem **o que o sistema não pode afirmar**; e o item de LGPD justifica por que não há dado pessoal em vez de só declarar que não há.
+
+---
+
+## Uma checagem automática
+
+Um Data Card incompleto costuma ser descoberto na véspera da entrega. Como cada item é uma seção, dá para checar em código se alguma falta ou está vazia:
+
+```python
+import re
+
+ITENS = [
+    "Unidade de análise", "Target", "Dicionário de variáveis", "Fontes e versões",
+    "Regras de integração", "Estratégia anti-leakage", "População coberta e excluída",
+    "Vieses e limitações", "Licença e LGPD",
+]
+
+def itens_faltando(texto: str) -> list[str]:
+    """Itens do Data Card sem seção (H2) ou com a seção vazia."""
+    secoes = {m.group(1).strip().lower(): m.group(2).strip()
+              for m in re.finditer(r"^## (.+?)\n(.*?)(?=^## |\Z)", texto, re.S | re.M)}
+    return [i for i in ITENS if len(secoes.get(i.lower(), "")) < 20]
+
+modelo = "\n\n".join(f"## {i}\n\nPreencha aqui com pelo menos uma frase concreta." for i in ITENS)
+assert itens_faltando(modelo) == []
+parcial = "## Unidade de análise\n\nMunicípio por semana, de 2023 a 2025.\n\n## Target\n\nx"
+print(itens_faltando(parcial))
+```
+
+A saída lista os itens com problema: no exemplo parcial, só "Unidade de análise" passa, e o "Target" falha porque o texto é curto demais (menos de 20 caracteres). O limite de 20 caracteres é arbitrário e simples: serve para pegar seções com um "x" ou um "TODO". Ele não substitui a leitura de uma pessoa.
+
+<NoProjeto titulo="No projeto: o item que mais dói">
+O item 8, vieses e limitações, é o que o grupo costuma evitar escrever. No case Ambev, três limitações aparecem quase certamente: o target não mede a ocasião diretamente, a regra de awareness depende de uma "associação atual à marca" que nenhuma fonte aberta mede, e o recorte de público vem de fontes com granularidades diferentes. Escrevê-las com clareza é uma força do projeto, não uma fraqueza.
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas do Data Card]
+1. **Escrever depois.** Um Data Card feito na última semana esquece decisões. Preencha a cada etapa.
+2. **Itens vagos.** "Dados públicos" não diz fonte, versão nem data.
+3. **Esconder limitações.** Uma limitação omitida aparece como erro do modelo.
+4. **Dicionário sem a coluna de disponibilidade.** É ela que sustenta a estratégia anti-leakage.
+5. **LGPD só declarada.** Diga por que a base não tem dado pessoal, ou como foi protegido.
+:::
+
+<Quiz
+  id="ambev-a7"
+  perguntas={[
+    {
+      pergunta: 'Qual redação do item "Fontes e versões" é a melhor?',
+      opcoes: [
+        {texto: 'Dados públicos do IBGE e do Ministério da Saúde', explicacao: 'Não diz qual conjunto, qual versão nem quando foi coletado.'},
+        {texto: 'Vigitel 2023, coletado em 2026-10-30; Censo 2022 via SIDRA; OSM, snapshot de 2026-10-28', correta: true, explicacao: 'Cada fonte tem nome, ano ou versão e data de coleta.'},
+        {texto: 'Veja o notebook', explicacao: 'O Data Card precisa ser legível sem executar código.'},
+      ],
+    },
+    {
+      pergunta: 'Qual coluna do dicionário de variáveis sustenta o item de anti-leakage?',
+      opcoes: [
+        {texto: 'O tipo de dado', explicacao: 'O tipo não diz quando a informação existe.'},
+        {texto: 'A disponibilidade no instante de previsão', correta: true, explicacao: 'Ela documenta que cada feature só usa o que era conhecido.'},
+        {texto: 'A cor do gráfico', explicacao: 'Não tem relação com o item.'},
+      ],
+    },
+    {
+      pergunta: 'A checagem automática passou para os nove itens. O Data Card está bom?',
+      opcoes: [
+        {texto: 'Sim, a checagem garante a qualidade', explicacao: 'Ela só detecta seções ausentes ou muito curtas.'},
+        {texto: 'Não necessariamente: ela só pega seções ausentes ou muito curtas, e alguém precisa ler o conteúdo', correta: true, explicacao: 'A checagem é um piso, não uma revisão.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: seu primeiro rascunho]
+Copie a estrutura de nove seções, preencha o que já souber hoje e rode a checagem. Os itens que faltam são a lista do que você precisa decidir.
+
+<details>
+<summary>Dica</summary>
+
+Comece pelos itens 1, 2 e 8. Se você não consegue escrever o que a base não permite afirmar, a formulação ainda está ampla demais.
+</details>
+:::
+
+---
+
+## Resumo
+
+- O TAPI exige **nove itens**: unidade, target, dicionário, fontes e versões, integração, anti-leakage, população, vieses e licença/LGPD.
+- Cada item precisa ser **concreto e verificável**.
+- As **limitações** dizem o que o sistema não pode afirmar.
+- Uma **checagem automática** pega seções ausentes, mas não substitui a leitura.
+- Escreva o Data Card **a cada etapa**, não no fim.
+
+## Referências
+
+- [Termo de abertura do case Ambev](/projetos/ambev/tapi): seção "Dados e formulação do problema".
+- [Documentação, ética e termos](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/documentacao-etica-e-termos): a base conceitual de data card, LGPD e termos de uso.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [The Data Cards Playbook (Google)](https://sites.research.google/datacardsplaybook/) *(em inglês)*: o método e os modelos de Data Card do Google, com atividades para preencher.
+- [Datasheets for Datasets (Gebru et al.)](https://arxiv.org/abs/1803.09010) *(em inglês)*: o artigo que propôs documentar bases com perguntas padronizadas.
+- [Hugging Face: Dataset Cards](https://huggingface.co/docs/hub/datasets-cards) *(em inglês)*: um formato real de card, com metadados e seções.
+
+**Vídeos**
+
+- [Datasheets for Datasets (Communications of the ACM)](https://www.youtube.com/watch?v=R7s7_T4yXak) *(em inglês)*: vídeo curto da CACM sobre o artigo.
+
+**Próxima aula:** [Baseline "sexta à noite" e Occasion Score](/projetos/ambev/materiais/baseline-sexta-a-noite-e-occasion-score): o que o modelo precisa provar.

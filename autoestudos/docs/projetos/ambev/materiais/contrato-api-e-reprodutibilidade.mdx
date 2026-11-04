@@ -1,0 +1,257 @@
+---
+secao: estudo
+sidebar_position: 10
+sidebar_label: 'Contrato, API e reprodutibilidade'
+title: 'Contrato, API e reprodutibilidade'
+description: 'Como expor o sistema do case Ambev com FastAPI e Pydantic, com o contrato de entrada e os seis campos de saída exigidos pelo TAPI, testes de contrato e um ambiente reprodutível com uv.'
+---
+
+# Contrato, API e Reprodutibilidade
+
+<LessonMeta
+  tempo="40 min"
+  objetivos={[
+    'Definir o contrato de entrada e os seis campos de saída com Pydantic',
+    'Expor o contrato em um endpoint FastAPI e validar entradas inválidas',
+    'Escrever testes de contrato com TestClient',
+    'Montar um ambiente reprodutível com versões fixadas',
+  ]}
+  prerequisitos={[
+    {label: 'Decision Engine: tabela de regras testável', to: '/projetos/ambev/materiais/decision-engine-tabela-de-regras-testavel'},
+    {label: 'O LLM orquestra, o modelo prevê', to: '/aulas/ml-preditivo-e-agentes/agente-preditivo-e-mcp/o-llm-orquestra-o-modelo-preve'},
+  ]}
+/>
+
+O TAPI pede uma **API ou função de inferência**, com um contrato claro: a entrada reúne atributos contextuais, temporais, de público, canal e região, mais **metadados de versão**; a saída traz seis campos. Um contrato bem definido permite que a interface, os testes e o vídeo falem com o mesmo sistema sem ambiguidade.
+
+:::info[Ideia central]
+O contrato é uma promessa: qualquer entrada válida produz uma saída com exatamente os seis campos, e qualquer entrada inválida é recusada antes de chegar ao modelo.
+:::
+
+---
+
+## O contrato
+
+| Entrada | Saída |
+| :--- | :--- |
+| Atributos contextuais e temporais | `occasion_score` |
+| Público, canal e região | `classification` |
+| Metadados de versão | `top_factors` |
+| | `recommendation_category` |
+| | `recommendation_reason` |
+| | `model_metadata` |
+
+A aula de contrato da trilha geral ([O LLM orquestra, o modelo prevê](/aulas/ml-preditivo-e-agentes/agente-preditivo-e-mcp/o-llm-orquestra-o-modelo-preve)) usa Pydantic da mesma forma. Aqui o TAPI pede FastAPI, que usa os mesmos modelos para validar a requisição e documentar a API.
+
+---
+
+## A API
+
+O trecho abaixo define o contrato e um endpoint. A função `prever` é um **stub**: ela devolve valores fixos para fechar o contrato. No projeto, ela chama as features, o modelo, o SHAP e o Decision Engine.
+
+```python
+from datetime import datetime
+from typing import Literal
+
+from fastapi import FastAPI
+from pydantic import BaseModel, Field
+
+
+class Versoes(BaseModel):
+    cliente: str
+    base: str | None = None
+
+
+class ContextoIn(BaseModel):
+    data_hora: datetime
+    uf: str = Field(min_length=2, max_length=2)
+    municipio_ibge: int
+    canal: Literal["delivery", "salao", "varejo"]
+    segmento: str
+    chuva_prevista_mm: float = Field(ge=0)
+    feriado: bool = False
+    versoes: Versoes
+
+
+class Fator(BaseModel):
+    nome: str
+    contribuicao: float
+
+
+class ModelMetadata(BaseModel):
+    model_version: str
+    data_version: str
+    rules_version: str
+
+
+class OccasionOut(BaseModel):
+    occasion_score: float = Field(ge=0, le=1)
+    classification: Literal["alta", "media", "baixa"]
+    top_factors: list[Fator]
+    recommendation_category: str
+    recommendation_reason: str
+    model_metadata: ModelMetadata
+
+
+app = FastAPI(title="Occasion Intelligence")
+
+
+def prever(ctx: ContextoIn) -> tuple[float, list[Fator]]:
+    """Troque por: features -> modelo -> SHAP. Aqui é só um stub para fechar o contrato."""
+    score = 0.7 if ctx.data_hora.weekday() >= 4 else 0.2
+    return score, [Fator(nome="dia_da_semana", contribuicao=0.3)]
+
+
+@app.post("/occasion", response_model=OccasionOut)
+def occasion(ctx: ContextoIn) -> OccasionOut:
+    score, fatores = prever(ctx)
+    classe = "alta" if score >= 0.6 else "media" if score >= 0.4 else "baixa"
+    return OccasionOut(
+        occasion_score=score,
+        classification=classe,
+        top_factors=fatores,
+        recommendation_category="delivery" if classe == "alta" else "sem_ativacao",
+        recommendation_reason="Resultado do stub de exemplo.",
+        model_metadata=ModelMetadata(model_version="stub-0", data_version=ctx.versoes.base or "n/d",
+                                     rules_version="r-0"),
+    )
+```
+
+Pontos de atenção:
+
+- **`Field(ge=0)` e `Field(min_length=2, max_length=2)`** recusam valores impossíveis (chuva negativa, UF com três letras) antes do modelo.
+- **`Literal`** limita o canal a valores conhecidos.
+- **`versoes` na entrada** carrega os metadados de versão que o TAPI pede. A saída devolve `model_metadata` com a versão do modelo, da base e das regras.
+- **`response_model=OccasionOut`** garante que a resposta tem os seis campos e que `occasion_score` está entre 0 e 1.
+
+---
+
+## Testes de contrato
+
+```python
+from fastapi.testclient import TestClient
+from contrato import app
+
+client = TestClient(app)
+ok = {"data_hora": "2026-11-06T20:00:00", "uf": "SP", "municipio_ibge": 3509502,
+      "canal": "delivery", "segmento": "A", "chuva_prevista_mm": 8.0,
+      "versoes": {"cliente": "0.1.0", "base": "2026-10-30"}}
+
+
+def test_saida_tem_os_seis_campos():
+    r = client.post("/occasion", json=ok)
+    assert r.status_code == 200
+    assert set(r.json()) == {"occasion_score", "classification", "top_factors",
+                             "recommendation_category", "recommendation_reason", "model_metadata"}
+
+
+def test_entrada_invalida_devolve_422():
+    assert client.post("/occasion", json={**ok, "chuva_prevista_mm": -1}).status_code == 422
+```
+
+Dois testes bastam para fechar o contrato: um mostra que a saída tem **exatamente** os seis campos, e outro mostra que uma entrada inválida devolve `422`. Rode com `pytest`. Se alguém mudar um nome de campo, o teste falha antes da demonstração.
+
+Para subir a API localmente: `uvicorn contrato:app --reload`, depois abra `/docs` para ver a documentação gerada.
+
+<NoProjeto titulo="No projeto: o mesmo contrato para três consumidores">
+O Streamlit, o teste automatizado e o vídeo consomem o mesmo endpoint. Se a interface mostra "recomendação: delivery" e o JSON da API diz a mesma coisa, o vídeo demonstra o sistema real e não uma maquete. O TAPI exige exatamente isso: o vídeo precisa mostrar o funcionamento real do código e da interface.
+</NoProjeto>
+
+---
+
+## Reprodutibilidade
+
+O TAPI pede **resultados reprodutíveis a partir do código entregue**. O mínimo:
+
+| Item | Como |
+| :--- | :--- |
+| **Ambiente fixado** | `uv` com `pyproject.toml` e `uv.lock`, ou `requirements.txt` com versões exatas |
+| **Docker (se necessário)** | Um `Dockerfile` que instala o ambiente e sobe a API |
+| **Testes** | `pytest` cobrindo o Engine, o contrato e as checagens de dados |
+| **Sementes** | Semente fixa em tudo o que sorteia, e a divisão temporal declarada |
+| **Dados** | Script que baixa ou reconstrói a base, e o Data Card dizendo as versões |
+| **Comandos no README** | Do clone ao primeiro resultado, em poucos comandos |
+
+Um teste simples de reprodutibilidade: clone o repositório em outra pasta, siga só o README e confira se o resultado bate. Se precisar de um comando que não está escrito, o README está incompleto.
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de API]
+1. **Contrato que muda sem aviso.** Qualquer mudança nos seis campos deve aparecer em teste.
+2. **Validar só na interface.** A API precisa recusar entradas inválidas por conta própria.
+3. **Esquecer os metadados de versão** na saída, o que impede rastrear qual modelo gerou o resultado.
+4. **Deixar o stub em produção.** Marque claramente o que é placeholder.
+5. **Ambiente "que funciona na minha máquina".** Sem versões fixadas, o vídeo reproduzível vira promessa.
+:::
+
+<Quiz
+  id="ambev-a11"
+  perguntas={[
+    {
+      pergunta: 'Uma requisição chega com `chuva_prevista_mm = -5`. O que a API deve fazer?',
+      opcoes: [
+        {texto: 'Passar o valor ao modelo e deixar o modelo lidar com isso', explicacao: 'Entradas impossíveis devem ser recusadas antes de chegar ao modelo.'},
+        {texto: 'Recusar com erro 422, por violar o contrato', correta: true, explicacao: 'A validação do Pydantic fecha a porta antes do modelo.'},
+        {texto: 'Trocar o valor por zero silenciosamente', explicacao: 'Corrigir em silêncio esconde um problema na origem.'},
+      ],
+    },
+    {
+      pergunta: 'Para que serve `response_model` no endpoint?',
+      opcoes: [
+        {texto: 'Garantir que a resposta respeita o contrato de saída', correta: true, explicacao: 'Ele valida e filtra a resposta, e documenta o formato.'},
+        {texto: 'Treinar o modelo', explicacao: 'Não tem relação com o treino.'},
+        {texto: 'Acelerar a resposta', explicacao: 'Não é uma otimização de velocidade.'},
+      ],
+    },
+    {
+      pergunta: 'Qual o melhor teste de reprodutibilidade do projeto?',
+      opcoes: [
+        {texto: 'Rodar o código no próprio computador', explicacao: 'Seu computador tem estado acumulado que outros não têm.'},
+        {texto: 'Clonar em outra pasta e seguir só o README', correta: true, explicacao: 'Mostra se o README e o ambiente realmente bastam.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: conecte o Engine]
+Substitua o stub de `prever` pela chamada ao seu Decision Engine, passando contexto, score e fatores. Escreva um teste que envia um contexto de score alto com delivery forte e confere `recommendation_category == "delivery"`.
+
+<details>
+<summary>Dica</summary>
+
+Faça o endpoint chamar funções puras (features, modelo, Engine). Assim cada uma pode ser testada sem subir o servidor.
+</details>
+:::
+
+---
+
+## Resumo
+
+- O **contrato** tem uma entrada validada (com metadados de versão) e **seis campos de saída**.
+- **Pydantic** recusa entradas impossíveis; **`response_model`** garante a saída.
+- **Testes de contrato** com `TestClient` protegem a interface e o vídeo.
+- **Reprodutibilidade** é ambiente fixado, testes, sementes e um README que funciona do zero.
+
+## Referências
+
+- [Termo de abertura do case Ambev](/projetos/ambev/tapi): seções "Arquitetura e stack" e "O contrato da aplicação".
+- [Documentação do FastAPI](https://fastapi.tiangolo.com/): modelos de resposta, validação e testes.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [FastAPI: tutorial](https://fastapi.tiangolo.com/tutorial/) *(em inglês)*: rotas, modelos de entrada e saída e documentação automática.
+- [FastAPI: Testing](https://fastapi.tiangolo.com/tutorial/testing/) *(em inglês)*: testar o contrato com `TestClient` e pytest.
+- [Pydantic](https://docs.pydantic.dev/latest/) *(em inglês)*: validação dos campos de entrada e dos seis campos de saída.
+- [uv](https://docs.astral.sh/uv/) *(em inglês)*: ambiente e versões fixadas para que qualquer pessoa rode o projeto.
+
+**Vídeos**
+
+- [FastAPI Course for Beginners (freeCodeCamp.org)](https://www.youtube.com/watch?v=tLKKmouUams) *(em inglês)*: curso completo de FastAPI.
+
+**Próxima aula:** aqui terminam os materiais obrigatórios. Os opcionais começam por [Mapa de Oportunidade como regra territorial](/projetos/ambev/materiais/mapa-de-oportunidade-como-regra-territorial).

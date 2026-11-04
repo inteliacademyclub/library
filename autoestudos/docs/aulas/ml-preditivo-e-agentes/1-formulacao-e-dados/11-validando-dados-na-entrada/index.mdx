@@ -1,0 +1,217 @@
+---
+sidebar_position: 11
+sidebar_label: 'Validando dados na entrada'
+title: 'Validando dados na entrada'
+description: 'Como proteger o pipeline quando a fonte muda: schemas com pandera, relatório de todos os erros de uma vez, checagem de tamanho do lote e testes de qualidade que quebram antes do modelo.'
+tags: [ml-preditivo, dados, validacao, qualidade]
+---
+
+# Validando Dados na Entrada: Quando a Fonte Muda sem Avisar
+
+<LessonMeta
+  tempo="35 min"
+  semana={1}
+  etapa="dados"
+  objetivos={[
+    'Escrever um schema que descreve o que o pipeline aceita',
+    'Usar o modo estrito para descobrir colunas novas ou faltando',
+    'Juntar todos os erros de um lote em um relatório único',
+    'Escrever testes de qualidade que quebram antes de o modelo ver o dado ruim',
+  ]}
+  prerequisitos={[
+    {label: 'Coletando dados de APIs públicas', to: '/aulas/ml-preditivo-e-agentes/formulacao-e-dados/coletando-dados-de-apis-publicas'},
+  ]}
+/>
+
+APIs e arquivos mudam. Um campo vira texto em vez de número, uma coluna ganha outro nome, um valor negativo aparece onde só havia positivos, a resposta vem pela metade. Nada disso gera erro no Pandas: o código roda, o modelo treina, e a métrica muda por um motivo que ninguém sabe qual é.
+
+A defesa é simples: **dizer, em código, o que o pipeline aceita** e recusar o resto antes de o modelo ver.
+
+:::info[Ideia central]
+Um **schema** é um contrato sobre os dados de entrada. Ele transforma "o modelo piorou de repente" em "o lote de ontem violou a regra X", que é um problema que dá para consertar.
+:::
+
+---
+
+## Um schema com pandera
+
+O `pandera` valida DataFrames. O trecho abaixo define o schema de uma tabela de posts e uma função que também recusa lotes pequenos demais. Os nomes e as regras são exemplos.
+
+```python
+import pandas as pd
+import pandera.pandas as pa
+
+SCHEMA = pa.DataFrameSchema(
+    {
+        "post_id": pa.Column(str, unique=True, nullable=False),
+        "publicado_em": pa.Column("datetime64[ns]", nullable=False),
+        "curtidas": pa.Column(int, pa.Check.ge(0), nullable=True),
+        "canal_id": pa.Column(str, nullable=False),
+    },
+    strict=True,          # coluna nova ou faltando é erro, não surpresa
+    coerce=True,
+)
+
+
+def valida_lote(df: pd.DataFrame, minimo_linhas: int = 100) -> pd.DataFrame:
+    if len(df) < minimo_linhas:
+        raise ValueError(f"lote pequeno demais: {len(df)} linhas (mínimo {minimo_linhas})")
+    return SCHEMA.validate(df, lazy=True)     # lazy: junta todos os erros em um relatório
+```
+
+Cada opção tem um motivo:
+
+| Opção | Efeito |
+| :--- | :--- |
+| `unique=True` | Recusa chaves duplicadas, que pesariam duas vezes na métrica |
+| `nullable=False` | Recusa nulos onde não deveria haver |
+| `pa.Check.ge(0)` | Recusa contagens negativas |
+| `strict=True` | Coluna nova ou faltando é erro, e não uma surpresa |
+| `coerce=True` | Converte tipos compatíveis (por exemplo, texto em número) |
+| `lazy=True` | Junta **todos** os erros do lote em um relatório |
+| `minimo_linhas` | Detecta uma coleta que veio quase vazia |
+
+O modo `lazy` é o que mais poupa tempo: em vez de corrigir um erro, rodar de novo e descobrir o seguinte, você recebe a lista completa.
+
+---
+
+## Os testes
+
+Os testes de qualidade documentam o comportamento esperado e rodam em toda coleta nova:
+
+```python
+import pandas as pd
+import pandera.errors as pe
+import pytest
+from valida import valida_lote
+
+
+def lote(n=120):
+    return pd.DataFrame({
+        "post_id": [f"p{i}" for i in range(n)],
+        "publicado_em": pd.date_range("2026-01-01", periods=n, freq="D"),
+        "curtidas": range(n),
+        "canal_id": ["c1"] * n,
+    })
+
+
+def test_lote_valido_passa():
+    assert len(valida_lote(lote())) == 120
+
+
+def test_curtida_negativa_e_chave_duplicada_vem_juntas():
+    df = lote()
+    df.loc[0, "curtidas"] = -1
+    df.loc[1, "post_id"] = "p0"
+    with pytest.raises(pe.SchemaErrors) as e:
+        valida_lote(df)
+    assert len(e.value.failure_cases) >= 2
+
+
+def test_coluna_nova_da_api_quebra_o_schema():
+    with pytest.raises(pe.SchemaErrors):
+        valida_lote(lote().assign(campo_novo=1))
+
+
+def test_lote_pequeno_demais():
+    with pytest.raises(ValueError):
+        valida_lote(lote(10))
+```
+
+Os quatro testes cobrem: um lote válido, dois erros no mesmo lote (curtida negativa e chave duplicada) aparecendo juntos, uma coluna nova que a API passou a enviar e um lote pequeno demais. Rode com `pytest`.
+
+---
+
+## O que mais validar
+
+O schema pega erros de forma. Alguns problemas só aparecem na **distribuição**:
+
+- **Tamanho do lote:** uma queda de 90% no número de linhas costuma ser uma coleta quebrada.
+- **Proporção de nulos:** de 2% para 40% indica mudança na fonte.
+- **Faixa de valores:** a mediana de uma coluna dobrou de um dia para o outro?
+- **Datas:** a coluna de data tem o fuso e o formato esperados, e nenhuma data no futuro?
+
+Defina limites razoáveis e **alerte**, em vez de seguir em silêncio. O alerta pode ser um erro no pipeline, uma mensagem ou um arquivo de relatório, conforme o seu projeto.
+
+---
+
+## Pandera ou Pydantic
+
+| Ferramenta | Quando usar |
+| :--- | :--- |
+| **pandera** | Tabelas inteiras (DataFrames), com regras sobre colunas, tipos e distribuições |
+| **Pydantic** | Registros individuais, como o corpo de uma requisição ou o contrato de uma API |
+
+Os dois se complementam: Pydantic na porta da API, pandera no lote que alimenta o treino.
+
+<NoProjeto titulo="No projeto: Galaxies e Ambev">
+No Galaxies, o schema de posts (`post_id`, `channel_id`, `published_at`, métrica e estatísticas do canal) protege o treino de uma coleta com formato alterado. No Ambev, o painel integra várias fontes públicas que mudam sem aviso; um schema por fonte, mais um schema do painel final, é o jeito de descobrir qual delas quebrou. Veja também [Juntando granularidades no DuckDB](/projetos/ambev/materiais/juntando-granularidades-no-duckdb).
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de validação]
+1. **Validar só no treino.** O dado de inferência também precisa passar pelo schema.
+2. **Schema frouxo.** Sem `strict`, uma coluna nova passa em silêncio.
+3. **Parar no primeiro erro.** Use `lazy` para ver todos de uma vez.
+4. **Não validar a distribuição.** Dados "válidos" em formato podem ser absurdos em conteúdo.
+5. **Corrigir o dado em silêncio.** Uma correção sem registro esconde o problema da fonte.
+:::
+
+<Quiz
+  id="m1-a11"
+  perguntas={[
+    {
+      pergunta: 'A API passou a enviar uma coluna nova, `campo_novo`. O que acontece com `strict=True`?',
+      opcoes: [
+        {texto: 'O lote é recusado, e você descobre a mudança', correta: true, explicacao: 'O modo estrito trata coluna inesperada como erro.'},
+        {texto: 'A coluna é ignorada em silêncio', explicacao: 'Esse é o comportamento sem `strict`.'},
+        {texto: 'O modelo usa a coluna automaticamente', explicacao: 'Nada na validação faz isso.'},
+      ],
+    },
+    {
+      pergunta: 'Para que serve `lazy=True` na validação?',
+      opcoes: [
+        {texto: 'Acelerar a validação', explicacao: 'Não é uma otimização de velocidade.'},
+        {texto: 'Reunir todos os erros do lote em um único relatório', correta: true, explicacao: 'Evita o ciclo de corrigir um erro e descobrir o próximo.'},
+        {texto: 'Ignorar erros leves', explicacao: 'Nenhum erro é ignorado.'},
+      ],
+    },
+    {
+      pergunta: 'O lote de hoje tem 1% das linhas do lote de ontem. O schema de colunas passou. O que fazer?',
+      opcoes: [
+        {texto: 'Treinar normalmente, porque o schema passou', explicacao: 'O schema não pega um lote quase vazio.'},
+        {texto: 'Barrar o lote com uma checagem de tamanho mínimo e investigar a coleta', correta: true, explicacao: 'Uma queda brusca de volume indica falha na fonte ou na coleta.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: o schema da sua tabela]
+Escreva o schema da tabela principal do seu projeto, com tipo, nulos e uma regra de faixa por coluna. Depois escreva três testes: um lote válido, um com duas violações e um com coluna nova.
+
+<details>
+<summary>Dica</summary>
+
+Se você não sabe qual regra colocar em uma coluna, olhe a distribuição dos seus dados atuais e escreva uma regra que os aceite com folga, mas recuse o impossível (negativos em contagens, datas futuras).
+</details>
+:::
+
+---
+
+## Resumo
+
+- Um **schema** é um contrato sobre os dados de entrada.
+- **`strict`, `nullable`, `unique` e checks de faixa** pegam os erros de forma.
+- **`lazy`** reúne todos os erros de um lote.
+- Valide também a **distribuição**: tamanho, nulos, faixa e datas.
+- **pandera** para tabelas, **Pydantic** para registros individuais.
+
+## Referências
+
+- [Documentação do pandera](https://pandera.readthedocs.io/): schemas, checks e validação preguiçosa.
+- [Contrato, API e reprodutibilidade](/projetos/ambev/materiais/contrato-api-e-reprodutibilidade): Pydantic na porta da API.
+
+**Próxima aula:** [Integrando fontes de granularidades diferentes](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/integrando-fontes-de-granularidades-diferentes): juntar tabelas sem misturar períodos.

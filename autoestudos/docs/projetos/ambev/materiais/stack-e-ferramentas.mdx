@@ -1,0 +1,111 @@
+---
+secao: guias
+sidebar_position: 4
+sidebar_label: 'Stack e ferramentas'
+title: 'Stack e ferramentas do case Ambev'
+description: 'As ferramentas do case Ambev por camada (dados, território, modelo e aplicação), com versões testadas juntas, o papel de cada uma, o link da documentação e as mudanças recentes que quebram tutoriais antigos.'
+---
+
+# Stack e Ferramentas do Case Ambev
+
+O TAPI pede uma solução em Python, com API (FastAPI) e interface (Streamlit), mas **não obriga nenhuma biblioteca**: a escolha precisa ser justificada no README. Esta página traz uma combinação **testada em conjunto**, com o link da documentação oficial de cada ferramenta, e as mudanças recentes que podem quebrar o código se você seguir um tutorial antigo.
+
+:::info[Testado em 03/11/2026]
+As versões abaixo seguem o guia da trilha (Python 3.12) e foram instaladas juntas. Todos os trechos de código dos materiais da Ambev rodaram com elas, com as mesmas saídas mostradas nas aulas. **Fixe as versões** no `pyproject.toml` e cite-as no README: é parte da reprodutibilidade que o TAPI exige.
+:::
+
+---
+
+## Ambiente completo
+
+```bash
+uv init occasion-intelligence --python 3.12 && cd occasion-intelligence
+
+# dados
+uv add pandas==3.0.6 numpy==2.5.3 pyarrow==25.0.1 duckdb==1.5.5 pandera==0.33.1 httpx==0.28.1
+
+# território
+uv add geopandas==1.2.0 shapely==2.2.0 pyproj==3.8.0 geobr
+
+# modelo
+uv add scikit-learn==1.9.1 scipy==1.18.1
+
+# aplicação e testes
+uv add fastapi==0.162.0 uvicorn==0.54.0 pydantic==2.13.5 streamlit==1.66.1 pydeck==0.9.3
+uv add --dev pytest==9.2.0
+```
+
+O `geobr` está sem versão fixada porque não fez parte do teste conjunto: fixe a que for instalada no seu ambiente.
+
+---
+
+## Dados
+
+<CardGrid>
+  <ToolCard nome="pandas" versao="3.0.6" licenca="BSD-3" custo="grátis" papel="Manipulação das tabelas, `groupby` da EDA e `merge_asof`." link="https://pandas.pydata.org/docs/" alerta="Desde o pandas 3, Copy-on-Write é o padrão: atribuição encadeada (`df[a][b] = x`) não altera mais o DataFrame original." />
+  <ToolCard nome="DuckDB" versao="1.5.5" licenca="MIT" custo="grátis" papel="SQL direto sobre Parquet e o ASOF join que monta o painel sem vazar o futuro." link="https://duckdb.org/docs/" alerta="Se usar o DuckDB 2.0: depois de um ASOF join, prefira `ON` a `USING`, que pode dar erro de coluna ambígua; e use `con.execute(sql).fetchone()`, porque relações deixaram de ter `fetchone()`." />
+  <ToolCard nome="pyarrow (Parquet)" versao="25.0.1" licenca="Apache-2.0" custo="grátis" papel="Formato colunar que preserva tipos. Guarde cada coleta em Parquet com a data." link="https://arrow.apache.org/docs/python/" />
+  <ToolCard nome="pandera" versao="0.33.1" licenca="MIT" custo="grátis" papel="Valida o esquema na entrada: tipos, nulos, faixas e chaves únicas." link="https://pandera.readthedocs.io/" />
+  <ToolCard nome="httpx" versao="0.28.1" licenca="BSD-3" custo="grátis" papel="Cliente HTTP para as APIs públicas, com timeout e testes sem rede (`MockTransport`)." link="https://www.python-httpx.org/" />
+</CardGrid>
+
+## Território
+
+<CardGrid>
+  <ToolCard nome="GeoPandas" versao="1.2.0" licenca="BSD-3" custo="grátis" papel="Joins espaciais (`sjoin`), reprojeção (`to_crs`) e mapas estáticos." link="https://geopandas.org/" alerta="`unary_union` foi substituído por `union_all()`." />
+  <ToolCard nome="shapely + pyproj" versao="2.2.0 / 3.8.0" licenca="BSD-3 / MIT" custo="grátis" papel="Geometrias e sistemas de coordenadas. Meça distâncias e áreas em EPSG:5880, não em graus." link="https://shapely.readthedocs.io/" />
+  <ToolCard nome="geobr (IPEA)" licenca="MIT" custo="grátis" papel="Malhas oficiais de municípios e setores censitários, já com o código IBGE." link="https://github.com/ipeaGIT/geobr" />
+</CardGrid>
+
+## Modelo
+
+<CardGrid>
+  <ToolCard nome="scikit-learn" versao="1.9.1" licenca="BSD-3" custo="grátis" papel="Regressão logística, gradient boosting (`HistGradientBoostingClassifier`), métricas, `TimeSeriesSplit`, calibração e clustering." link="https://scikit-learn.org/stable/" alerta="Para calibrar um modelo já treinado, use `FrozenEstimator`. O antigo `cv='prefit'` foi descontinuado." />
+  <ToolCard nome="NumPy + SciPy" versao="2.5.3 / 1.18.1" licenca="BSD-3" custo="grátis" papel="Base numérica e testes estatísticos do protocolo de experimento." link="https://numpy.org/doc/" />
+</CardGrid>
+
+## Aplicação e testes
+
+<CardGrid>
+  <ToolCard nome="FastAPI + Uvicorn" versao="0.162.0 / 0.54.0" licenca="MIT / BSD-3" custo="grátis" papel="A API com os seis campos de saída do TAPI e documentação automática em `/docs`." link="https://fastapi.tiangolo.com/" />
+  <ToolCard nome="Pydantic" versao="2.13.5" licenca="MIT" custo="grátis" papel="O contrato: valida a entrada e garante o formato da saída." link="https://docs.pydantic.dev/latest/" />
+  <ToolCard nome="Streamlit" versao="1.66.1" licenca="Apache-2.0" custo="grátis" papel="A interface com entrada de contexto, score, fatores, recomendação e mapa." link="https://docs.streamlit.io/" />
+  <ToolCard nome="pydeck" versao="0.9.3" licenca="Apache-2.0" custo="grátis" papel="Mapas interativos dentro do Streamlit (`st.pydeck_chart`)." link="https://deckgl.readthedocs.io/" />
+  <ToolCard nome="pytest" versao="9.2.0" licenca="MIT" custo="grátis" papel="Testes do Decision Engine (uma linha da tabela por caso) e do contrato da API." link="https://docs.pytest.org/" />
+  <ToolCard nome="uv" licenca="MIT / Apache-2.0" custo="grátis" papel="Cria o ambiente, fixa as versões no `uv.lock` e roda tudo com `uv run`." link="https://docs.astral.sh/uv/" />
+</CardGrid>
+
+---
+
+## Fontes e APIs
+
+As fontes em si, com o papel de cada uma, estão em [Fontes e APIs do case](/projetos/ambev/materiais/guia-de-fontes-e-apis). Aqui ficam só os links da documentação técnica.
+
+<CardGrid>
+  <ToolCard nome="Open-Meteo" custo="grátis (uso não comercial)" papel="Clima observado (Historical Weather) e o valor previsto 1 a 7 dias antes de cada horário (Previous Runs, sufixo `_previous_dayN`)." link="https://open-meteo.com/en/docs/previous-runs-api" alerta="A Historical Forecast API, apesar do nome, emenda só as primeiras horas de cada rodada: não use como previsão com antecedência." />
+  <ToolCard nome="API de Localidades do IBGE" custo="grátis" papel="Códigos de município, UF e região: a chave de todos os joins." link="https://servicodados.ibge.gov.br/api/docs/localidades" />
+  <ToolCard nome="SIDRA (IBGE)" custo="grátis" papel="Tabelas do Censo 2022: população, renda e domicílios por município." link="https://sidra.ibge.gov.br/" />
+  <ToolCard nome="BrasilAPI" custo="grátis" papel="Feriados nacionais por ano." link="https://brasilapi.com.br/docs" alerta="Só traz feriados nacionais. Os municipais precisam de outra fonte." />
+  <ToolCard nome="Overpass API (OSM)" custo="grátis" papel="Pizzarias por área (`cuisine=pizza`). Teste as consultas no Overpass Turbo." link="https://wiki.openstreetmap.org/wiki/Overpass_API" alerta="Servidores públicos têm limite de uso: guarde o resultado e não repita a consulta a cada execução." />
+  <ToolCard nome="Google Trends API (alpha)" custo="grátis (acesso por inscrição)" papel="Interesse de busca com escala consistente entre requisições. É proxy, nunca target." link="https://developers.google.com/search/apis/trends" alerta="O `pytrends` foi arquivado em 17/04/2025 e não recebe mais correções." />
+</CardGrid>
+
+---
+
+## Como justificar a stack no README
+
+- **Uma linha por ferramenta:** o que ela faz no projeto e por que essa e não outra. Por exemplo: "DuckDB para o ASOF join, porque junta clima e calendário por instante sem trazer o futuro".
+- **Versões fixadas** no `uv.lock`, com a versão do Python.
+- **O que ficou de fora e por quê.** Por exemplo: "não usamos LLM no MVP porque a justificativa vem do Decision Engine".
+
+<Checklist
+  id="ambev-stack"
+  titulo="Seu ambiente está pronto quando…"
+  itens={[
+    'O projeto roda do zero com `uv sync` e `uv run`',
+    'As versões estão fixadas no `uv.lock` e citadas no README',
+    'Cada ferramenta tem uma linha de justificativa no README',
+    '`uv run pytest` passa, incluindo os testes do Decision Engine e da API',
+    'Nenhuma chave de API está no repositório (use `.env` no `.gitignore`)',
+  ]}
+/>

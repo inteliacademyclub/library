@@ -1,0 +1,213 @@
+---
+secao: estudo
+sidebar_position: 6
+sidebar_label: 'EDA e features de contexto'
+title: 'EDA da ocasião e features de contexto'
+description: 'Como explorar a ocasião Pizza + Guaraná por dia, período, região e clima, e transformar o que a análise mostra em features de calendário, clima, território, oferta e interações.'
+---
+
+# EDA da Ocasião: o que Olhar Antes de Modelar
+
+<LessonMeta
+  tempo="35 min"
+  etapa="dados"
+  objetivos={[
+    'Montar a tabela de taxa da ocasião por dia da semana e período',
+    'Testar se o efeito de uma variável depende de outra (interação)',
+    'Criar features de calendário, clima, território, oferta e interação',
+    'Registrar na EDA o que vira regra, o que vira feature e o que vira limitação',
+  ]}
+  prerequisitos={[
+    {label: 'Juntando granularidades no DuckDB', to: '/projetos/ambev/materiais/juntando-granularidades-no-duckdb'},
+  ]}
+/>
+
+A EDA é o segundo entregável do TAPI, e é onde o projeto descobre se o problema tem sinal. Ela responde duas perguntas: **onde a ocasião aparece** e **o que muda isso**. O TAPI avisa por que não basta uma regra: dia, horário, público, região, canal e histórico **interagem**. A EDA é onde você enxerga essas interações antes de pedir ao modelo que as aprenda.
+
+:::info[Ideia central]
+Toda análise exploratória termina em uma decisão: vira **feature**, vira **regra do Decision Engine**, vira **limitação** no Data Card ou é descartada. Se uma tabela não leva a nenhuma dessas quatro, ela não serve ao projeto.
+:::
+
+---
+
+## O que explorar
+
+| Eixo | Pergunta | Fonte típica |
+| :--- | :--- | :--- |
+| **Dia e período** | A ocasião concentra de sexta a domingo, à noite? | Calendário e target |
+| **Região** | Os padrões se repetem entre regiões ou mudam? | Código IBGE e UF |
+| **Clima** | Chuva e frio aumentam a ocasião? Em quais dias? | Open-Meteo, INMET |
+| **Território** | Renda e população mudam o nível da ocasião? | IBGE SIDRA |
+| **Oferta** | Mais pizzarias por habitante significa mais ocasião? | OSM, CNPJ |
+| **Público** | Os padrões mudam entre segmentos? | POF, Vigitel, Censo |
+
+O TAPI diz que a ocasião se concentra de sexta a domingo, à noite e em casa. A EDA confirma isso nos **seus** dados ou mostra onde a descrição não vale.
+
+---
+
+## Do dia e período à interação
+
+O trecho abaixo gera dados **sintéticos** com uma interação plantada (a chuva pesa mais em noites de fim de semana) para mostrar como ela aparece na análise. Em dados reais, você não sabe de antemão onde está o sinal: é para isso que serve a EDA.
+
+```python
+import numpy as np
+import pandas as pd
+
+rng = np.random.default_rng(7)
+n = 20_000
+df = pd.DataFrame({
+    "dia_semana": rng.integers(0, 7, n),          # 0 = segunda
+    "periodo": rng.choice(["manha", "tarde", "noite"], n, p=[0.25, 0.3, 0.45]),
+    "chuva": rng.random(n) < 0.25,
+    "delivery_forte": rng.random(n) < 0.4,
+})
+noite_fds = df.dia_semana.isin([4, 5, 6]) & (df.periodo == "noite")
+logit = -3.2 + 1.6 * noite_fds + 0.6 * (df.chuva & noite_fds) + 0.5 * df.delivery_forte
+df["ocasiao"] = rng.random(n) < 1 / (1 + np.exp(-logit))   # dados sintéticos
+
+# 1) Taxa por dia da semana x período.
+tabela = df.pivot_table(index="dia_semana", columns="periodo", values="ocasiao", aggfunc="mean")
+print(tabela.round(3))
+
+# 2) Interação: o efeito da chuva depende do dia e do período?
+ef = (df.assign(noite_fds=noite_fds)
+        .groupby(["noite_fds", "chuva"])["ocasiao"].mean().unstack())
+print(ef.round(3))
+
+# 3) Features de interação.
+def adiciona_features(d):
+    d = d.copy()
+    d["fds_noite"] = (d.dia_semana.isin([4, 5, 6]) & (d.periodo == "noite")).astype(int)
+    d["chuva_x_fds_noite"] = d.chuva.astype(int) * d.fds_noite
+    return d
+
+feat = adiciona_features(df)
+print(feat[["fds_noite", "chuva_x_fds_noite"]].mean().round(3))
+assert tabela.loc[4, "noite"] > tabela.loc[1, "tarde"]
+assert ef.loc[True, True] > ef.loc[True, False]
+print("ok")
+```
+
+A saída obtida com a semente do exemplo:
+
+```text
+periodo     manha  noite  tarde
+dia_semana
+0           0.048  0.044  0.050
+1           0.041  0.056  0.059
+2           0.042  0.038  0.059
+3           0.037  0.038  0.055
+4           0.048  0.217  0.040
+5           0.041  0.243  0.051
+6           0.039  0.222  0.055
+chuva      False  True
+noite_fds
+False      0.048  0.042
+True       0.192  0.333
+```
+
+Como ler:
+
+- **A primeira tabela** mostra a concentração em noites de sexta a domingo. É o padrão que o baseline "sexta à noite" vai capturar.
+- **A segunda tabela** mostra a interação: fora das noites de fim de semana, a chuva quase não muda nada (0,048 contra 0,042). Dentro delas, ela sobe a taxa de 0,192 para 0,333. Uma regra do tipo "chuva aumenta a ocasião" estaria certa só num dos dois grupos.
+
+Esse é o tipo de achado que justifica um modelo acima do baseline, e que vira uma feature de interação (`chuva_x_fds_noite`).
+
+---
+
+## Features que a EDA costuma sugerir
+
+| Grupo | Exemplos | Cuidado |
+| :--- | :--- | :--- |
+| **Calendário** | Dia da semana, período, feriado, véspera de feriado | Feriados municipais não estão na BrasilAPI |
+| **Clima** | Temperatura e chuva **previstas**, indicador de chuva forte | Use previsão, não o observado ([instante de previsão](/projetos/ambev/materiais/instante-de-previsao-com-dados-de-contexto)) |
+| **Território** | Renda média, população, domicílios | Dado do Censo é uma foto, não uma série |
+| **Oferta** | Pizzarias por 100 mil habitantes | A cobertura do OSM varia entre cidades |
+| **Histórico** | Taxa passada da ocasião na unidade | Calcule só com dados anteriores ao instante de previsão |
+| **Interação** | Fim de semana à noite, chuva nesse recorte | Crie só as que a EDA sustenta |
+
+<NoProjeto titulo="No projeto: Campinas e Recife">
+Ao comparar "Campinas, sexta, 20h, chuva" com "Recife, terça, 13h", a EDA deve mostrar por que os dois ficam em extremos opostos: dia e período explicam grande parte, e a chuva só pesa no primeiro. Se, nos seus dados reais, não houver diferença entre os dois contextos, esse é o resultado mais importante da EDA: o problema não tem o sinal que o TAPI supõe, e a formulação deve ser revista.
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de EDA]
+1. **Olhar só médias globais.** A média esconde diferenças entre regiões e segmentos, e o TAPI pede análise por segmentos.
+2. **Calcular taxas históricas com todos os dados.** A taxa de um período usada como feature precisa vir só do passado.
+3. **Criar interações sem sustentação.** Cada cruzamento extra aumenta o risco de ajustar ruído.
+4. **Usar Trends como se fosse o target.** Interesse é contexto, não consumo.
+5. **Não registrar o resultado.** A EDA sem decisão registrada se perde antes do README.
+:::
+
+<Quiz
+  id="ambev-a6"
+  perguntas={[
+    {
+      pergunta: 'A taxa da ocasião sobe com chuva só nas noites de fim de semana. Que nome tem esse padrão?',
+      opcoes: [
+        {texto: 'Interação: o efeito de uma variável depende de outra', correta: true, explicacao: 'A chuva só pesa em um recorte de dia e período.'},
+        {texto: 'Vazamento de dados', explicacao: 'Vazamento é usar informação indisponível no instante de previsão. Não é o caso.'},
+        {texto: 'Desbalanceamento de classes', explicacao: 'É sobre a proporção entre positivos e negativos, não sobre o efeito de variáveis.'},
+      ],
+    },
+    {
+      pergunta: 'Qual feature de histórico é válida?',
+      opcoes: [
+        {texto: 'A taxa da ocasião no município calculada com todo o período, inclusive o futuro', explicacao: 'Usa informação posterior ao instante de previsão.'},
+        {texto: 'A taxa da ocasião no município nas semanas anteriores ao instante de previsão', correta: true, explicacao: 'Só usa o que já era conhecido.'},
+        {texto: 'A taxa do mês seguinte', explicacao: 'É informação futura.'},
+      ],
+    },
+    {
+      pergunta: 'Para que serve registrar o resultado da EDA em feature, regra, limitação ou descarte?',
+      opcoes: [
+        {texto: 'Para o README ficar mais longo', explicacao: 'O objetivo é rastrear decisões, não alongar o texto.'},
+        {texto: 'Para ligar cada achado a uma decisão do projeto', correta: true, explicacao: 'Uma análise sem destino não ajuda o modelo, o Engine ou o Data Card.'},
+        {texto: 'Para evitar a validação temporal', explicacao: 'A EDA não substitui a validação.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: sua tabela de achados]
+Gere as duas tabelas da aula com os seus dados e escreva três achados no formato "observação, evidência, decisão" (por exemplo: "chuva só pesa em noites de fim de semana; tabela 2; feature de interação").
+
+<details>
+<summary>Dica</summary>
+
+Se os dois grupos da segunda tabela forem iguais, não crie a interação. Uma feature sem sustentação aumenta o risco de ajustar ruído e é difícil de explicar depois.
+</details>
+:::
+
+---
+
+## Resumo
+
+- A EDA responde **onde a ocasião aparece** e **o que muda isso**.
+- A tabela **dia por período** mostra o padrão que o baseline vai capturar; a tabela de **interação** mostra o que justifica o modelo.
+- Features de **calendário, clima previsto, território, oferta, histórico passado e interação** saem da análise.
+- Todo achado vira **feature, regra, limitação ou descarte**.
+
+## Referências
+
+- [Termo de abertura do case Ambev](/projetos/ambev/tapi): entregável 2 (EDA e feature engineering).
+- [Features do canal e do tempo](/aulas/ml-preditivo-e-agentes/gradient-boosting/features-do-canal-e-do-tempo): a técnica de histórico sem vazamento.
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [pandas: Group by](https://pandas.pydata.org/docs/user_guide/groupby.html) *(em inglês)*: agregar por dia, período, região e faixa de clima.
+- [seaborn: tutorial](https://seaborn.pydata.org/tutorial.html) *(em inglês)*: gráficos de distribuição e de interação (dia por período).
+- [BrasilAPI](https://brasilapi.com.br/docs): a documentação dos endpoints de feriados nacionais.
+
+**Vídeos**
+
+- [Análise Exploratória de Dados em Python - Pandas e Plotly](https://www.youtube.com/watch?v=nSs2SZBjT8M): um passo a passo de EDA em português.
+
+**Próxima aula:** [Data Card da ocasião](/projetos/ambev/materiais/data-card-da-ocasiao): documentar a base com os nove itens do TAPI.

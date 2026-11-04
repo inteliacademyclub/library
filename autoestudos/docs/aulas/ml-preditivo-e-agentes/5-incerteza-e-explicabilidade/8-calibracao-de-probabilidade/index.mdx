@@ -1,0 +1,207 @@
+---
+sidebar_position: 8
+sidebar_label: 'Calibração de probabilidade'
+title: 'Calibração de probabilidade'
+description: 'Quando um score pode ser lido como probabilidade: curva de confiabilidade, Brier score, calibração por Platt (sigmoid) e isotônica, e como calibrar em um conjunto separado, respeitando a ordem temporal.'
+tags: [ml-preditivo, incerteza, calibracao, probabilidade]
+---
+
+# Calibração de Probabilidade: Quando 0,8 Quer Dizer 80%
+
+<LessonMeta
+  tempo="40 min"
+  semana={3}
+  etapa="incerteza"
+  objetivos={[
+    'Explicar o que significa um modelo estar calibrado',
+    'Ler uma curva de confiabilidade e calcular o Brier score',
+    'Calibrar um modelo com Platt (sigmoid) e isotônica em um conjunto separado',
+    'Saber quando a calibração importa e quando não importa',
+  ]}
+  prerequisitos={[
+    {label: 'Desbalanceamento de classes', to: '/aulas/ml-preditivo-e-agentes/avaliacao-honesta/desbalanceamento-de-classes'},
+    {label: 'Métricas de classificação e custo dos erros', to: '/aulas/ml-preditivo-e-agentes/avaliacao-honesta/metricas-de-classificacao-e-custo-dos-erros'},
+  ]}
+/>
+
+:::tip[Ordem de leitura]
+Esta aula entra no módulo 5 como a número 8 para não renumerar as demais, mas faz mais sentido **antes** de [Por que um número só não basta](/aulas/ml-preditivo-e-agentes/incerteza-e-explicabilidade/por-que-um-numero-so-nao-basta): ela trata da incerteza de um score de classificação.
+:::
+
+Um classificador devolve um número entre 0 e 1 e quase todo mundo o chama de "probabilidade". Mas só é uma probabilidade **se for calibrado**: entre todos os casos em que o modelo diz 0,8, cerca de 80% devem ser positivos. Muitos modelos ordenam muito bem (ROC-AUC alta) e calibram mal. Se você só precisa **ordenar**, isso não importa. Se alguém vai ler "0,8" como "80% de chance", importa muito.
+
+:::info[Ideia central]
+**Ordenação** e **calibração** são propriedades diferentes. Um modelo pode acertar a ordem e errar a escala. A calibração ajusta a escala, sem (ou quase sem) mudar a ordem.
+:::
+
+---
+
+## Como medir
+
+- **Curva de confiabilidade** (*reliability diagram*): agrupe os scores em faixas e compare, em cada faixa, a **média prevista** com a **fração real de positivos**. Um modelo calibrado fica na diagonal.
+- **Brier score:** o erro quadrático médio entre a probabilidade e o resultado (0 ou 1). Quanto menor, melhor. Ele combina calibração e capacidade de separar as classes.
+
+$$
+\text{Brier} = \frac{1}{n} \sum_{i=1}^{n} (p_i - y_i)^2
+$$
+
+- **Média prevista contra a prevalência:** uma checagem simples. Se o modelo prevê, em média, 36% e a prevalência real é 9%, algo está errado.
+
+---
+
+## Calibrando um modelo que ordena bem
+
+O exemplo usa `class_weight="balanced"` em dados **sintéticos** com cerca de 9% de positivos: o ranking é bom, mas o peso infla as probabilidades (veja [Desbalanceamento de classes](/aulas/ml-preditivo-e-agentes/avaliacao-honesta/desbalanceamento-de-classes)). Os dados são divididos em ordem: treino, calibração e teste.
+
+```python
+import numpy as np
+from sklearn.calibration import CalibratedClassifierCV, calibration_curve
+from sklearn.frozen import FrozenEstimator
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import brier_score_loss
+
+rng = np.random.default_rng(3)
+n = 40_000
+X = rng.normal(size=(n, 4))
+p = 1 / (1 + np.exp(-(-3.2 + 1.3 * X[:, 0] + 0.9 * X[:, 1])))        # ~7% de positivos (sintético)
+y = (rng.random(n) < p).astype(int)
+
+# Divisão em ordem (como numa validação temporal): treino, calibração, teste.
+a, b = int(n * 0.5), int(n * 0.75)
+X_tr, y_tr, X_cal, y_cal, X_te, y_te = X[:a], y[:a], X[a:b], y[a:b], X[b:], y[b:]
+
+# Um modelo com bom ranking, mas probabilidades distorcidas pelo peso de classe.
+base = LogisticRegression(class_weight="balanced", max_iter=1000).fit(X_tr, y_tr)
+resultados = {"sem calibrar": base.predict_proba(X_te)[:, 1]}
+for metodo in ("sigmoid", "isotonic"):
+    cal = CalibratedClassifierCV(FrozenEstimator(base), method=metodo).fit(X_cal, y_cal)
+    resultados[metodo] = cal.predict_proba(X_te)[:, 1]
+
+print("prevalência real:", round(y_te.mean(), 3))
+for nome, s in resultados.items():
+    frac, media = calibration_curve(y_te, s, n_bins=10, strategy="quantile")
+    erro = np.abs(frac - media).mean()     # erro médio por faixa (parecido com o ECE)
+    print(f"{nome:13s} média prevista {s.mean():.3f} | Brier {brier_score_loss(y_te, s):.4f} | erro por faixa {erro:.3f}")
+assert brier_score_loss(y_te, resultados["isotonic"]) < brier_score_loss(y_te, resultados["sem calibrar"])
+```
+
+A saída obtida com a semente do exemplo:
+
+```text
+prevalência real: 0.088
+sem calibrar  média prevista 0.357 | Brier 0.1649 | erro por faixa 0.269
+sigmoid       média prevista 0.088 | Brier 0.0643 | erro por faixa 0.004
+isotonic      média prevista 0.088 | Brier 0.0644 | erro por faixa 0.005
+```
+
+Como ler:
+
+- **Sem calibrar**, o modelo prevê em média 35,7%, enquanto a prevalência é 8,8%. O Brier é 0,165 e o erro médio por faixa chega a 0,27: o score **não é** uma probabilidade.
+- **Com calibração**, a média prevista fica em 0,088, igual à prevalência. O Brier cai para 0,064 e o erro por faixa para menos de 0,005.
+- **Sigmoid e isotônica** empatam aqui. Com mais dados e curvas de calibração mais irregulares, a isotônica tende a ajustar melhor; com poucos dados, a sigmoid é mais estável.
+
+---
+
+## Os dois métodos
+
+| Método | O que faz | Quando usar |
+| :--- | :--- | :--- |
+| **Sigmoid (Platt)** | Ajusta uma curva logística ao score | Poucos dados de calibração; a distorção tem forma de "S" |
+| **Isotônica** | Ajusta uma função monotônica por partes | Muitos dados; distorções mais irregulares. Pode criar empates no score |
+
+---
+
+## Como calibrar sem trapacear
+
+1. **Use um conjunto separado** do treino e do teste. Calibrar com os dados de treino subestima o erro, porque o modelo já os viu.
+2. **Respeite a ordem temporal.** Treino em períodos anteriores, calibração em seguida e teste depois, como no trecho.
+3. **Congele o modelo base.** O exemplo usa `FrozenEstimator` para calibrar um modelo já treinado. Em versões recentes do scikit-learn, ele substitui o antigo `cv="prefit"`, que foi descontinuado.
+4. **Reavalie no teste**, com Brier e curva de confiabilidade.
+5. **Recalibre ao longo do tempo.** Se a prevalência ou o comportamento mudam, a calibração envelhece.
+
+---
+
+## Quando calibrar importa
+
+| Situação | A calibração importa? |
+| :--- | :--- |
+| Só ordenar (rankings, top-k) | Pouco: a ordem já resolve |
+| Mostrar o score como "probabilidade" a uma pessoa | **Muito** |
+| Decidir pelo custo esperado (`C_FP`, `C_FN`) | **Muito**: o limiar ótimo supõe probabilidades reais |
+| Combinar scores de vários modelos | Sim: escalas diferentes não se somam |
+| Depois de `class_weight` ou reamostragem | **Sim**: as probabilidades foram distorcidas |
+
+<NoProjeto titulo="No projeto: Galaxies e Ambev">
+No Galaxies, a incerteza vem de intervalos (quantílica e conformal), e o conceito é o mesmo: números que prometem algo (cobertura de 80%) precisam cumprir. No Ambev, o Occasion Score pode ser uma probabilidade estimada, e o TAPI pede calibração "quando o score for probabilístico". Se ele não for calibrado, chame-o de **índice** e não de probabilidade. Veja [Unidade de análise e formulação do score](/projetos/ambev/materiais/unidade-de-analise-e-formulacao-do-score).
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de calibração]
+1. **Confundir ROC-AUC alta com calibração boa.** São propriedades diferentes.
+2. **Calibrar com os dados de treino.** O modelo já os viu.
+3. **Calibrar e avaliar no mesmo conjunto.** O resultado fica otimista.
+4. **Ignorar a ordem temporal.** Calibrar com dados futuros vaza informação.
+5. **Esquecer de recalibrar** quando a prevalência muda.
+:::
+
+<Quiz
+  id="m5-a8"
+  perguntas={[
+    {
+      pergunta: 'Um modelo prevê, em média, 36% de positivos, mas a prevalência real é 9%. O que isso indica?',
+      opcoes: [
+        {texto: 'O modelo está descalibrado: os scores não são probabilidades', correta: true, explicacao: 'A média prevista deveria ser próxima da prevalência.'},
+        {texto: 'O modelo é excelente', explicacao: 'Isso diz algo sobre a escala, e não sobre a qualidade do ranking.'},
+        {texto: 'A prevalência está errada', explicacao: 'A prevalência é a medida real.'},
+      ],
+    },
+    {
+      pergunta: 'Onde se ajusta o calibrador?',
+      opcoes: [
+        {texto: 'Nos dados de treino do modelo', explicacao: 'O modelo já os viu, e a calibração ficaria otimista.'},
+        {texto: 'Em um conjunto separado, posterior ao treino, e a avaliação final vem no teste', correta: true, explicacao: 'É o que mantém a avaliação honesta.'},
+        {texto: 'No conjunto de teste', explicacao: 'O teste só deve ser usado no fim.'},
+      ],
+    },
+    {
+      pergunta: 'Você usa `class_weight="balanced"` e vai mostrar o score a uma pessoa como "probabilidade". O que fazer?',
+      opcoes: [
+        {texto: 'Nada, o peso não afeta o score', explicacao: 'O peso distorce a probabilidade.'},
+        {texto: 'Recalibrar o modelo em um conjunto separado antes de apresentar o score', correta: true, explicacao: 'A calibração devolve a escala de probabilidade.'},
+        {texto: 'Dividir o score por dois', explicacao: 'Uma correção arbitrária não resolve.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: desenhe a curva]
+Pegue um classificador seu, divida em treino, calibração e teste em ordem temporal e calibre com sigmoid e isotônica. Plote a curva de confiabilidade antes e depois com `calibration_curve`, e compare Brier e média prevista com a prevalência.
+
+<details>
+<summary>Dica</summary>
+
+Se o conjunto de calibração for pequeno (poucas centenas de exemplos), prefira a sigmoid: a isotônica tende a superajustar com poucos dados.
+</details>
+:::
+
+---
+
+## Resumo
+
+- Um modelo **calibrado** é aquele em que "0,8" significa cerca de 80% de positivos.
+- **Ordenar** e **calibrar** são coisas diferentes: meça com **curva de confiabilidade e Brier**.
+- **Sigmoid** (poucos dados) e **isotônica** (muitos dados) ajustam a escala.
+- Calibre em um **conjunto separado**, respeitando a **ordem temporal**.
+- **Pesos de classe e reamostragem distorcem** as probabilidades e pedem recalibração.
+
+## Referências
+
+- [scikit-learn: calibração de probabilidades](https://scikit-learn.org/stable/modules/calibration.html). Curva de confiabilidade, `CalibratedClassifierCV` e `FrozenEstimator`.
+- Niculescu-Mizil e Caruana. *Predicting Good Probabilities With Supervised Learning*. ICML, 2005. Compara métodos de calibração em vários modelos.
+- Guo, Pleiss, Sun e Weinberger. *On Calibration of Modern Neural Networks*. ICML, 2017.
+- Brier. *Verification of Forecasts Expressed in Terms of Probability*. Monthly Weather Review, 1950. A origem do Brier score.
+
+**Próxima aula:** [O LLM orquestra, o modelo prevê](/aulas/ml-preditivo-e-agentes/agente-preditivo-e-mcp/o-llm-orquestra-o-modelo-preve): como juntar previsão, incerteza e explicação num agente.

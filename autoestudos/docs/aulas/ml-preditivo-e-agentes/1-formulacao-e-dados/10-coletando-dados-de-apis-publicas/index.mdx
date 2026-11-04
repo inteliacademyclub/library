@@ -1,0 +1,245 @@
+---
+sidebar_position: 10
+sidebar_label: 'Coletando dados de APIs públicas'
+title: 'Coletando dados de APIs públicas'
+description: 'Coleta robusta de qualquer API pública com httpx: paginação, rate limit, retry com backoff, cache, coleta incremental e idempotente, e snapshots datados em Parquet, com testes sem rede.'
+tags: [ml-preditivo, dados, apis, coleta]
+---
+
+# Coletando Dados de APIs Públicas: Paginação, Retry e Snapshots
+
+<LessonMeta
+  tempo="45 min"
+  semana={1}
+  etapa="dados"
+  objetivos={[
+    'Paginar uma API por cursor sem perder nem repetir itens',
+    'Implementar retry com backoff exponencial, respeitando Retry-After',
+    'Distinguir erros que se repetem (429, 5xx) dos que não se repetem (4xx)',
+    'Gravar snapshots datados em Parquet de forma idempotente',
+    'Testar a coleta sem acessar a rede',
+  ]}
+  prerequisitos={[
+    {label: 'Construindo o coletor com a YouTube Data API', to: '/aulas/ml-preditivo-e-agentes/formulacao-e-dados/construindo-o-coletor'},
+  ]}
+/>
+
+A aula de coletor da YouTube Data API ensina uma API específica. Quase todo projeto de ML coleta de alguma API, e quase toda API tem as mesmas perguntas: como paginar, o que fazer quando ela pede para você esperar, o que fazer quando cai, como não coletar o mesmo dado duas vezes e como guardar o resultado de modo que dê para reproduzir o que o modelo viu. Esta aula responde a essas perguntas de forma genérica.
+
+:::info[Ambiente desta aula]
+Os trechos foram testados com Python 3.12 e as versões do guia da trilha: `httpx` 0.28.1, `pandas` 3.0.6, `pyarrow` 25.0.1 e `pytest` 9.2. Instale com `uv add httpx==0.28.1 pandas==3.0.6 pyarrow==25.0.1` e `uv add --dev pytest==9.2.0`. Os testes usam `httpx.MockTransport`, então não acessam a rede.
+:::
+
+---
+
+## Quatro problemas de toda coleta
+
+| Problema | Sintoma | Solução |
+| :--- | :--- | :--- |
+| **Paginação** | A API devolve só uma parte dos itens | Seguir o cursor (ou a página) até o fim |
+| **Rate limit** | Erro `429` ou bloqueio | Esperar o tempo indicado e repetir |
+| **Falha transitória** | Erros `5xx` ocasionais | Repetir com espera crescente |
+| **Reprodutibilidade** | O dado de hoje não é o de amanhã | Guardar snapshots datados |
+
+Um quinto problema é de bom comportamento: **identifique o seu coletor** (um `User-Agent` com contato, quando a API permitir) e **não exceda os limites** documentados.
+
+---
+
+## O código
+
+O trecho abaixo tem três funções: `get_com_retry`, `coleta_paginada` e `snapshot`.
+
+```python
+import datetime as dt
+import random
+import time
+from pathlib import Path
+
+import httpx
+import pandas as pd
+
+
+def get_com_retry(client: httpx.Client, url: str, params: dict, tentativas: int = 5) -> dict:
+    """GET com backoff exponencial e jitter. Respeita Retry-After em 429 e repete em 5xx."""
+    for i in range(tentativas):
+        r = client.get(url, params=params)
+        if r.status_code == 200:
+            return r.json()
+        if r.status_code in (429, 500, 502, 503, 504):
+            espera = float(r.headers.get("Retry-After", 2 ** i)) + random.random() * 0.1
+            time.sleep(min(espera, 30))
+            continue
+        r.raise_for_status()          # 4xx de verdade (401, 404...) não se repete
+    raise RuntimeError(f"falhou após {tentativas} tentativas: {url}")
+
+
+def coleta_paginada(client: httpx.Client, url: str) -> list[dict]:
+    itens, cursor = [], None
+    while True:
+        dados = get_com_retry(client, url, {"cursor": cursor} if cursor else {})
+        itens += dados["itens"]
+        cursor = dados.get("proximo")
+        if not cursor:
+            return itens
+
+
+def snapshot(client: httpx.Client, url: str, pasta: Path, dia: dt.date | None = None) -> Path:
+    """Idempotente: se o snapshot do dia já existe, não coleta de novo."""
+    dia = dia or dt.date.today()
+    destino = pasta / f"dt={dia.isoformat()}" / "dados.parquet"
+    if destino.exists():
+        return destino
+    df = pd.DataFrame(coleta_paginada(client, url)).assign(collected_at=pd.Timestamp.now("UTC"))
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(destino, index=False)
+    return destino
+```
+
+Decisões importantes:
+
+- **Só repete o que pode dar certo.** `429` e `5xx` são repetidos; um `404` ou `401` não melhora com repetição e levanta o erro na hora.
+- **Backoff exponencial com jitter.** A espera cresce (1, 2, 4, 8 segundos) com um pequeno acréscimo aleatório, para que vários coletores não repitam todos ao mesmo tempo.
+- **`Retry-After` manda.** Se a API diz quanto esperar, use esse valor.
+- **Teto na espera.** `min(espera, 30)` evita esperas absurdas.
+- **Paginação por cursor.** O laço termina quando a resposta não traz mais cursor, e junta os itens de todas as páginas.
+- **Snapshot idempotente.** O arquivo é `dt=AAAA-MM-DD/dados.parquet`; se já existe, a função não coleta de novo. Rodar o script duas vezes no mesmo dia não duplica nem gasta cota.
+- **`collected_at` em toda linha.** Registra quando o dado foi visto, o que importa para evitar vazamento temporal.
+
+---
+
+## Testando sem rede
+
+`httpx.MockTransport` permite simular respostas da API. Os três testes abaixo cobrem o essencial:
+
+```python
+import datetime as dt
+import httpx
+import pandas as pd
+import coleta
+
+coleta.time.sleep = lambda s: None   # testes não esperam de verdade
+
+
+def cliente(respostas):
+    chamadas = {"n": 0}
+    def handler(req):
+        r = respostas[min(chamadas["n"], len(respostas) - 1)]
+        chamadas["n"] += 1
+        return r(req) if callable(r) else r
+    return httpx.Client(transport=httpx.MockTransport(handler)), chamadas
+
+
+def test_retry_em_429_e_paginacao():
+    c, n = cliente([
+        httpx.Response(429, headers={"Retry-After": "0"}),
+        httpx.Response(200, json={"itens": [{"id": 1}], "proximo": "p2"}),
+        httpx.Response(200, json={"itens": [{"id": 2}]}),
+    ])
+    assert [i["id"] for i in coleta.coleta_paginada(c, "http://x/api")] == [1, 2]
+    assert n["n"] == 3
+
+
+def test_4xx_nao_repete():
+    c, n = cliente([httpx.Response(404)])
+    try:
+        coleta.coleta_paginada(c, "http://x/api")
+    except httpx.HTTPStatusError:
+        pass
+    assert n["n"] == 1
+
+
+def test_snapshot_idempotente(tmp_path):
+    c, n = cliente([httpx.Response(200, json={"itens": [{"id": 1}]})])
+    d = dt.date(2026, 10, 30)
+    p1 = coleta.snapshot(c, "http://x/api", tmp_path, d)
+    p2 = coleta.snapshot(c, "http://x/api", tmp_path, d)
+    assert p1 == p2 and n["n"] == 1
+    assert list(pd.read_parquet(p1).columns) == ["id", "collected_at"]
+```
+
+- **`test_retry_em_429_e_paginacao`** simula uma resposta `429`, uma página com cursor e a última página, e confere que os itens chegam na ordem e que foram três chamadas.
+- **`test_4xx_nao_repete`** garante que um `404` faz uma única chamada.
+- **`test_snapshot_idempotente`** garante que a segunda chamada no mesmo dia não vai à rede.
+
+Para que os testes não esperem de verdade, o primeiro substitui `time.sleep` por uma função vazia. Rode com `pytest`: os três passam.
+
+---
+
+## Coleta incremental
+
+Coletar tudo todo dia é caro e muitas vezes desnecessário. A coleta **incremental** guarda um ponto de partida (por exemplo, a data do último item coletado) e pede só o que é mais novo. Dois cuidados:
+
+- **Idempotência:** se a coleta falhar no meio e rodar de novo, o resultado final deve ser o mesmo. Escreva em um arquivo temporário e renomeie só no fim, ou use a chave do item para evitar duplicatas.
+- **Itens que mudam:** contagens (curtidas, visualizações) mudam depois da publicação. A coleta incremental pega itens novos, e um **snapshot periódico** captura a evolução.
+
+<NoProjeto titulo="No projeto: Galaxies e Ambev">
+No Galaxies, a cota diária da YouTube Data API torna a coleta incremental e idempotente uma necessidade. No Ambev, as APIs abertas (Open-Meteo, BrasilAPI, SIDRA, Overpass) mudam de formato e de cobertura: os snapshots datados permitem dizer, no Data Card, exatamente qual versão da fonte alimentou o modelo.
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas de coleta]
+1. **Repetir tudo, inclusive `404`.** Gasta cota e tempo sem chance de sucesso.
+2. **Backoff sem teto ou sem jitter.** Espera infinita, ou vários coletores sincronizados.
+3. **Ignorar o `Retry-After`.** A API disse quanto esperar.
+4. **Sobrescrever o dado antigo.** Sem snapshots datados, ninguém reproduz o treino.
+5. **Não testar a paginação.** Perder a última página é um erro silencioso.
+:::
+
+<Quiz
+  id="m1-a10"
+  perguntas={[
+    {
+      pergunta: 'A API devolve `404` para um recurso. O que o coletor deve fazer?',
+      opcoes: [
+        {texto: 'Repetir cinco vezes com backoff', explicacao: 'Um 404 não melhora com repetição.'},
+        {texto: 'Levantar o erro e não repetir', correta: true, explicacao: 'Erros de cliente (4xx) não são transitórios, com exceção do 429.'},
+        {texto: 'Ignorar e seguir sem registrar', explicacao: 'Perder um item em silêncio é ruim para a reprodutibilidade.'},
+      ],
+    },
+    {
+      pergunta: 'Por que o snapshot é gravado em `dt=AAAA-MM-DD/dados.parquet`?',
+      opcoes: [
+        {texto: 'Para a coleta de cada dia ficar separada e identificável, e a rotina ser idempotente', correta: true, explicacao: 'Permite reproduzir o que foi visto em cada dia e evitar coletar duas vezes.'},
+        {texto: 'Porque o Parquet exige esse nome', explicacao: 'É uma convenção de particionamento, não uma exigência do formato.'},
+        {texto: 'Para economizar espaço', explicacao: 'O objetivo é rastreabilidade.'},
+      ],
+    },
+    {
+      pergunta: 'A coleta falhou na metade e foi executada de novo. O que garante que não haja itens duplicados?',
+      opcoes: [
+        {texto: 'Nada, é preciso limpar à mão', explicacao: 'Uma coleta bem desenhada resolve isso.'},
+        {texto: 'Idempotência: escrever o resultado só no fim, ou deduplicar pela chave do item', correta: true, explicacao: 'O resultado final é o mesmo, qualquer que seja o número de execuções.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: adapte para uma API real]
+Escolha uma API pública que você usa, leia a documentação de limites e paginação e adapte `coleta_paginada` para ela (nome do cursor, formato da resposta). Escreva um teste com `MockTransport` para o seu caso de `429`.
+
+<details>
+<summary>Dica</summary>
+
+Algumas APIs paginam por número de página ou por `offset`, e não por cursor. A lógica é a mesma: o laço termina quando a resposta vem vazia ou sem indicação de próxima página.
+</details>
+:::
+
+---
+
+## Resumo
+
+- Toda coleta resolve **paginação, rate limit, falhas transitórias e reprodutibilidade**.
+- **Repita só o que pode melhorar** (`429`, `5xx`), com **backoff exponencial, jitter, teto e `Retry-After`**.
+- **Snapshots datados em Parquet** tornam a coleta idempotente e o treino reproduzível.
+- **`MockTransport`** permite testar retry e paginação sem rede.
+- Coleta **incremental** pede só o novo, e snapshots periódicos capturam o que muda.
+
+## Referências
+
+- [Documentação do httpx](https://www.python-httpx.org/): clientes, transportes e `MockTransport`.
+- [Construindo o coletor com a YouTube Data API](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/construindo-o-coletor): a versão específica desta aula.
+
+**Próxima aula:** [Validando dados na entrada](/aulas/ml-preditivo-e-agentes/formulacao-e-dados/validando-dados-na-entrada): o que fazer quando a API muda de formato sem avisar.

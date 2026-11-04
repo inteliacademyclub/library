@@ -1,0 +1,173 @@
+---
+secao: estudo
+sidebar_position: 13
+sidebar_label: 'Trend Radar'
+title: 'Trend Radar'
+description: 'Como construir o Trend Radar opcional do case Ambev: alertas de tendência de interesse por cidade e período, sem tratar buscas como consumo, com os limites das fontes de Google Trends.'
+---
+
+# Trend Radar: Alertas de Tendência sem Confundir Busca com Consumo
+
+<LessonMeta
+  tempo="30 min"
+  opcional
+  objetivos={[
+    'Explicar o que o Trend Radar entrega e o que ele não pode afirmar',
+    'Comparar janelas de semanas para detectar tendência de subida ou queda',
+    'Evitar alertas sobre bases minúsculas',
+    'Conhecer os limites das opções de coleta de Google Trends',
+  ]}
+  prerequisitos={[
+    {label: 'Fontes e APIs do case', to: '/projetos/ambev/materiais/guia-de-fontes-e-apis'},
+    {label: 'O target que não existe', to: '/projetos/ambev/materiais/o-target-que-nao-existe'},
+  ]}
+/>
+
+O Trend Radar é uma extensão opcional que identifica se o **interesse** por Pizza + Guaraná está crescendo ou caindo em cada cidade e período. Ele combina buscas (Google Trends), clima (Open-Meteo), feriados (BrasilAPI), perfil territorial (IBGE/SIDRA) e oferta local de pizzarias (OpenStreetMap/Overpass). A entrega, segundo o TAPI, é um **alerta de oportunidade** com tendência, local, período e os fatores que explicam o movimento.
+
+:::danger[Buscas medem interesse, não consumo]
+O TAPI é categórico: buscas entram como **sinal de contexto, nunca como target**. Um alerta do Trend Radar diz "o interesse está subindo em Campinas", e nunca "o consumo está subindo".
+:::
+
+---
+
+## O que o radar entrega
+
+| Campo do alerta | Conteúdo |
+| :--- | :--- |
+| **Tendência** | Subindo, caindo ou estável, com a variação |
+| **Local** | Cidade ou UF, conforme a granularidade da fonte |
+| **Período** | As semanas comparadas |
+| **Fatores** | Clima, feriado, oferta e perfil que acompanham o movimento |
+
+O radar **não prevê** o consumo, não mede vendas e não substitui o Occasion Score. Ele funciona como uma camada de contexto e de aviso.
+
+---
+
+## Uma regra simples de tendência
+
+O Google Trends devolve interesse **relativo**, de 0 a 100. Uma comparação de janelas é simples e fácil de explicar: a média das últimas semanas contra a média das semanas anteriores. Os dados abaixo são **sintéticos**.
+
+```python
+import numpy as np
+import pandas as pd
+
+def alertas(interesse: pd.DataFrame, janela=4, subida_min=0.25, nivel_min=10):
+    """interesse: colunas cidade, semana, valor (0-100). Compara as últimas `janela` semanas com as anteriores."""
+    saida = []
+    for cidade, g in interesse.sort_values("semana").groupby("cidade"):
+        v = g["valor"].to_numpy(dtype=float)
+        if len(v) < 2 * janela:
+            continue
+        atual, antes = v[-janela:].mean(), v[-2 * janela:-janela].mean()
+        if antes >= nivel_min:   # evita razão sobre base minúscula
+            var = atual / antes - 1
+            if abs(var) >= subida_min:
+                saida.append((cidade, round(var, 2), "subindo" if var > 0 else "caindo"))
+    return pd.DataFrame(saida, columns=["cidade", "variacao", "tendencia"])
+
+semanas = pd.date_range("2026-01-04", periods=8, freq="W")
+dados = pd.concat([
+    pd.DataFrame({"cidade": "Campinas", "semana": semanas, "valor": [20, 22, 21, 20, 30, 33, 32, 35]}),
+    pd.DataFrame({"cidade": "Recife", "semana": semanas, "valor": [40, 41, 39, 40, 41, 40, 42, 41]}),
+    pd.DataFrame({"cidade": "Pequena", "semana": semanas, "valor": [1, 1, 2, 1, 5, 6, 5, 6]}),
+])
+r = alertas(dados)
+print(r)
+assert list(r.cidade) == ["Campinas"]
+```
+
+A saída é um único alerta: Campinas, com subida de 57%. Recife, estável, não aparece. A cidade "Pequena" também não aparece, apesar de uma variação enorme, porque a base anterior é pequena demais (`nivel_min`): quando o interesse sai de 1 para 5, um salto de 400% é ruído, não tendência.
+
+Os limiares (`janela=4`, `subida_min=0.25`, `nivel_min=10`) são **ilustrativos**. Documente os seus e teste a sensibilidade deles.
+
+---
+
+## Coletando Google Trends
+
+| Opção | O que é | Cuidado |
+| :--- | :--- | :--- |
+| **`pytrends`** | Biblioteca não oficial muito usada | Foi **arquivada em 17/04/2025**, segundo o material do case |
+| **API oficial (alpha)** | Escala consistente entre requisições | Restrita por inscrição |
+| **`trendspy`** | Biblioteca não oficial | Não é oficial e pode quebrar |
+| **Exportação manual** | CSV baixado do site | Trabalhoso, mas estável e reprodutível se guardado com data |
+
+Qualquer que seja a opção, **guarde o dado coletado com a data de coleta**, porque o índice é relativo e pode mudar entre consultas. Documente a escolha e a limitação no Data Card.
+
+<NoProjeto titulo="No projeto: cruzando alerta e score">
+Um alerta "interesse subindo em Campinas" pode ser cruzado com o Occasion Score do município: interesse subindo e score alto formam um contexto a observar; interesse subindo e score baixo merecem uma segunda olhada (o que está atraindo as buscas?). Nos dois casos, o texto do alerta deve dizer "interesse", e a decisão de ativação continua a cargo do Decision Engine.
+</NoProjeto>
+
+---
+
+## Erros comuns
+
+:::warning[Armadilhas do radar]
+1. **Chamar interesse de consumo** no texto do alerta ou no README.
+2. **Usar o Trends como target** do modelo principal.
+3. **Alertar sobre bases minúsculas.** Sem um nível mínimo, o radar vira gerador de ruído.
+4. **Misturar escalas.** O índice é relativo a cada consulta: dados de consultas diferentes não são comparáveis diretamente.
+5. **Não guardar a data de coleta.** O índice muda, e sem data não há como reproduzir.
+:::
+
+<Quiz
+  id="ambev-a15"
+  perguntas={[
+    {
+      pergunta: 'Qual redação de alerta respeita o TAPI?',
+      opcoes: [
+        {texto: 'O consumo de pizza com Guaraná está subindo em Campinas', explicacao: 'Busca não mede consumo.'},
+        {texto: 'O interesse por busca está subindo em Campinas', correta: true, explicacao: 'Diz o que a fonte realmente mede.'},
+        {texto: 'As vendas em Campinas vão crescer', explicacao: 'É uma previsão causal sem sustentação.'},
+      ],
+    },
+    {
+      pergunta: 'Uma cidade passa de 1 para 5 no índice. Por que o radar não deve alertar?',
+      opcoes: [
+        {texto: 'Porque a variação percentual é enorme sobre uma base minúscula, o que é ruído', correta: true, explicacao: 'O nível mínimo evita alertas sobre razões instáveis.'},
+        {texto: 'Porque 5 é um valor baixo demais para qualquer cidade', explicacao: 'O problema é a base de comparação, não o valor em si.'},
+        {texto: 'Porque o Google Trends proíbe', explicacao: 'Não há proibição. É uma decisão de qualidade do alerta.'},
+      ],
+    },
+  ]}
+/>
+
+:::tip[Exercício: teste a sensibilidade]
+Rode o radar com `janela` de 3, 4 e 6 semanas e com `subida_min` de 0,15 e 0,40. Quantos alertas cada combinação gera? Qual combinação você defenderia no README, e por quê?
+
+<details>
+<summary>Dica</summary>
+
+Se os alertas mudam muito com pequenas mudanças de parâmetro, o radar está sensível demais. Registre isso como limitação.
+</details>
+:::
+
+---
+
+## Resumo
+
+- O radar sinaliza **tendência de interesse**, nunca de consumo.
+- Uma **comparação de janelas** com nível mínimo é simples e explicável.
+- **Bases minúsculas** geram variações enormes e falsas: filtre-as.
+- A coleta de Trends tem **limites**: guarde os dados com a data e documente a opção escolhida.
+- O alerta traz **tendência, local, período e fatores**.
+
+## Referências
+
+- [Termo de abertura do case Ambev](/projetos/ambev/tapi): seção "Demais entregáveis (opcionais)".
+- [Fontes e APIs do case](/projetos/ambev/materiais/guia-de-fontes-e-apis): a seção "Proxy de interesse".
+
+## Documentação e vídeos
+
+Para aprofundar a parte técnica desta aula. Os vídeos são opcionais e não substituem a aula.
+
+**Documentação**
+
+- [Perguntas frequentes sobre os dados do Google Trends](https://support.google.com/trends/answer/4365533?hl=pt): como os dados são amostrados e normalizados de 0 a 100.
+- [Google Trends API (alpha)](https://developers.google.com/search/apis/trends) *(em inglês)*: a API oficial, com escala consistente entre requisições (acesso por inscrição).
+
+**Vídeos**
+
+- [AI for journalists: Using Google Trends for reporting (Google News Initiative)](https://www.youtube.com/watch?v=fRytwgkdzzU) *(em inglês)*: como ler e comparar termos, regiões e períodos no Trends.
+
+**Próxima aula:** [Laboratório de Preço: protocolo de experimento](/projetos/ambev/materiais/laboratorio-de-preco-protocolo-de-experimento) (opcional).
