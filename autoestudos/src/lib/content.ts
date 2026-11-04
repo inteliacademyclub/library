@@ -144,7 +144,9 @@ const byStatusAndPos = (a: Projeto, b: Projeto) => {
 let cache: {trilhas: Trilha[]; projetos: Projeto[]; pages: Page[]} | undefined;
 
 function load() {
-  if (cache && process.env.NODE_ENV === 'production') return cache;
+  // Uma página consulta o catálogo em metadata, rotas e renderização. Reutilizar a
+  // mesma leitura evita reabrir e parsear todos os MDX a cada navegação no dev.
+  if (cache) return cache;
 
   const trilhas: Trilha[] = fs
     .readdirSync(path.join(ROOT, 'aulas'), {withFileTypes: true})
